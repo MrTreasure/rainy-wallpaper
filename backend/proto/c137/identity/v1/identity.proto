@@ -1,0 +1,34 @@
+syntax = "proto3";
+package c137.identity.v1;
+option go_package = "mrtreasure.cc/service-contracts/gen/go/c137/identity/v1;identityv1";
+
+service IdentityService {
+  // Fresh validation against the existing identity domain/session store.
+  // Client deadline: 3s. Caller credential: authorization metadata.
+  rpc ValidateSession(ValidateSessionRequest) returns (ValidateSessionResponse);
+}
+enum SessionKind {
+  SESSION_KIND_UNSPECIFIED = 0;
+  SESSION_KIND_APPLICATION = 1;
+  SESSION_KIND_ORBIT = 2;
+}
+message ValidateSessionRequest {
+  // Sensitive: never log the message or this field.
+  string session_token = 1;
+  string application_id = 2;
+  SessionKind kind = 3;
+  // First-time enrollment only; never overrides an explicit block.
+  bool enroll_if_missing = 4;
+}
+message User {
+  string id = 1;
+  optional string email = 2;
+  optional string display_name = 3;
+  bool is_super_admin = 4;
+  string application_role = 5;
+  optional string avatar_url = 6;
+}
+message ValidateSessionResponse {
+  User user = 1;
+  string application_id = 2;
+}

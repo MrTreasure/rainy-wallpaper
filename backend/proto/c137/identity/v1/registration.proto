@@ -1,0 +1,16 @@
+syntax = "proto3";
+package c137.identity.v1;
+import "c137/identity/v1/identity.proto";
+// Native email signup. Caller scope and challenge application must agree.
+// Deadline <= 30s. Sensitive fields and replies must never be logged.
+service RegistrationService {
+ rpc RequestEmailCode(RegistrationCodeInput) returns (RegistrationChallenge);
+ rpc RegisterEmail(EmailRegistrationInput) returns (RegisteredSession);
+}
+message RegistrationCodeInput { string application_id = 1; string email = 2; string client_ip = 3; }
+message RegistrationChallenge { string challenge_id = 1; uint32 expires_in_seconds = 2; }
+message EmailRegistrationInput {
+ string application_id = 1; string client_ip = 2; string challenge_id = 3;
+ string code = 4; string password = 5; string display_name = 6;
+}
+message RegisteredSession { User user = 1; string application_id = 2; string session_token = 3; uint32 expires_in_seconds = 4; }
