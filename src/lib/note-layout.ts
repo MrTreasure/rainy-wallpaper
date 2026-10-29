@@ -8,7 +8,7 @@ export function reachablePosition(x:number,y:number,area:Area,paper:{width:numbe
  const edge=Math.min(96,paper.width/2);
  const minX=overflow?(edge-paper.width/2-area.left)/area.width*100:Math.min(48,paper.width/2/area.width*100);
  const maxX=overflow?(viewport.width-edge+paper.width/2-area.left)/area.width*100:100-minX;
- const minY=Math.min(50,(paper.height/2+22)/area.height*100);
+ const minY=overflow?clamp((paper.height/2-area.top)/area.height*100,0,100):Math.min(50,(paper.height/2+22)/area.height*100);
  const maxY=Math.max(minY,100-Math.min(48,paper.height/2/area.height*100));
  return {x:clamp(x,minX,maxX),y:clamp(y,minY,maxY)};
 }

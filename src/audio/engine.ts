@@ -27,6 +27,7 @@ export class AmbientEngine {
   SOUND_KINDS.forEach((kind:SoundKind,i)=>{const track=safe.tracks[kind];track.enabled=track.enabled&&policy.allowed.includes(kind)&&policy.enabled;const ceiling=kind==='thunder'?policy.thunderLimit:1;this.gains[i].gain.setTargetAtTime(track.enabled?Math.min(Math.max(0,track.volume),ceiling):0,now,.25)});
   this.node.port.postMessage({type:'config',config:safe});
  }
+ previewThunder(){if(this.context?.state==='running')this.node?.port.postMessage({type:'thunder'})}
  async pause(){if(this.context)await this.context.suspend()}
  async close(){const context=this.context;this.context=null;this.node=null;this.master=null;this.gains=[];if(context&&context.state!=='closed')await context.close()}
  get running(){return this.context?.state==='running'}

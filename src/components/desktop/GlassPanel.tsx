@@ -11,7 +11,7 @@ const recipes:{name:string;description:string;settings:GlassRecipe}[]=[
 export function GlassPanel({preferences:p,onChange}:{preferences:DesktopPreferences;onChange:(patch:Partial<DesktopPreferences>)=>void}){
  return <section className="glass-settings" aria-label="玻璃与水珠设置">
   <h3 className="panel-subheading">窗外的天气</h3>
-  <GlassToggle label="窗外下雨" description="远近雨幕、斜雨与雨雾；玻璃挂珠固定时也会持续落雨" checked={p.glassFalling} onChange={v=>onChange({glassFalling:v})}/>
+  <GlassToggle label="窗外下雨" description="随雨声播放落雨；关闭或暂停雨声后停雨，已有水珠保留" checked={p.glassFalling} onChange={v=>onChange({glassFalling:v})}/>
   {p.glassFalling&&<><GlassRange label="窗外雨势" value={p.outdoorRain} onChange={v=>onChange({outdoorRain:v})}/><GlassRange label="斜雨与阵风" value={p.outdoorWind} onChange={v=>onChange({outdoorWind:v})}/></>}
   <h3 className="panel-subheading">眼前的玻璃</h3><p className="glass-description">水珠留在窗上，风景在窗外。</p>
   <div className="glass-recipes">{recipes.map(r=><button type="button" key={r.name} aria-pressed={p.rainGlass&&Object.entries(r.settings).every(([k,v])=>p[k as keyof GlassRecipe]===v)} onClick={()=>onChange({rainGlass:true,...r.settings})}><span>{r.name}<Check size={12}/></span><small>{r.description}</small></button>)}</div>
