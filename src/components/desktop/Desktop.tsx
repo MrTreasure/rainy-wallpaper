@@ -18,7 +18,8 @@ import type {AudioSettings,AppConfig,ConfigRecord,SoundKind,TrackSettings,User,W
 import {highResolutionWallpaper,displayWallpaperUrl} from '@/services/wallpaper-image';
 import {abortableDelay,loadWallpaperImage,queryWallpaper,wallpaperQuota} from '@/services/wallpaper-query';
 import type {WallpaperQuota} from '@/services/wallpaper-query';
-import {animationsActive} from '@/services/render-loop';
+import {animationsActive,initializeAnimationFocus} from '@/services/render-loop';
+import {installPageAnalytics} from '@/services/page-analytics';
 import {AmbientEngine} from '@/audio/engine';
 import {RAIN_PRESETS,rainPresetAudio,rainPresetPreferences,rainIsEnabled} from '@/services/rain-presets';
 
@@ -50,7 +51,7 @@ export function Desktop(){
  const photoSeq=useRef(0),initialPhoto=useRef(false),latest=useRef({prefs,board,config,drawer});latest.current={prefs,board,config,drawer};
  const visibleNotes=board.board.notes.filter(n=>!n.archived),activeNote=visibleNotes.find(n=>n.id===selected);
  useEffect(()=>{if(board.ready&&visibleNotes.length&&!visibleNotes.some(n=>n.id===selected))setSelected(visibleNotes[0].id)},[board.ready,visibleNotes,selected]);
- useEffect(()=>{document.title='静间 · 白噪音与 Markdown 便利贴'},[]);
+ useEffect(()=>{document.title='静间 · 白噪音与 Markdown 便利贴';initializeAnimationFocus();installPageAnalytics()},[]);
  const notify=useCallback((message:string)=>setToast(message),[]);
  useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>{setToast('');setDeleted(null)},5500);return()=>clearTimeout(timer)},[toast]);
  useEffect(()=>{

@@ -7,9 +7,6 @@ import "./styles.css";
 import "./note-preview.css";
 import "./desktop.css";
 
-import {initializeAnimationFocus} from './services/render-loop';
-import {installPageAnalytics} from './services/page-analytics';
-initializeAnimationFocus();installPageAnalytics();
 const router = getRouter();
 
 function reportFatalReactError(
