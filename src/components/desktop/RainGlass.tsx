@@ -55,7 +55,7 @@ export function RainGlass({density,wind,size,refraction,pinned,speed,wallpaper,r
    if(microPoints.length>=target)microBudget=0;
   }
   function background(event:PointerEvent){return !(event.target instanceof Element)||!event.target.closest('button,a,input,textarea,select,label,[role="dialog"],.paper-note,.desktop-panel-overlay')}
-  function down(event:PointerEvent){if(!background(event)||reduced.matches||event.button!==0)return;pressed=true;pointer={x:event.clientX,y:event.clientY}}
+  function down(event:PointerEvent){if(!background(event)||reduced.matches||event.button!==0)return;event.preventDefault();window.getSelection()?.removeAllRanges();pressed=true;pointer={x:event.clientX,y:event.clientY}}
   function move(event:PointerEvent){
    if(reduced.matches||!background(event)){pressed=false;pointer=null;return}
    const point={x:event.clientX,y:event.clientY};
@@ -101,7 +101,7 @@ export function RainGlass({density,wind,size,refraction,pinned,speed,wallpaper,r
   function draw(now:number){frame=0;if(document.hidden||reduced.matches)return;if(now-last>=33){const dt=last?Math.min(.06,(now-last)/1000):1/30;last=now;paint(dt)}frame=requestAnimationFrame(draw)}
   function resume(){cancelAnimationFrame(frame);frame=0;last=0;if(!document.hidden&&!reduced.matches)frame=requestAnimationFrame(draw);else paint(0)}
   redraw.current=()=>paint(0);
-  resize();resume();window.addEventListener('resize',resize);window.addEventListener('pointerdown',down,{passive:true});window.addEventListener('pointermove',move,{passive:true});window.addEventListener('pointerup',up,{passive:true});window.addEventListener('pointercancel',up,{passive:true});window.addEventListener('blur',up);document.addEventListener('visibilitychange',resume);reduced.addEventListener('change',resume);
+  resize();resume();window.addEventListener('resize',resize);window.addEventListener('pointerdown',down,{passive:false});window.addEventListener('pointermove',move,{passive:true});window.addEventListener('pointerup',up,{passive:true});window.addEventListener('pointercancel',up,{passive:true});window.addEventListener('blur',up);document.addEventListener('visibilitychange',resume);reduced.addEventListener('change',resume);
   return()=>{renderer.current?.destroy();renderer.current=null;redraw.current=()=>{};cancelAnimationFrame(frame);window.removeEventListener('resize',resize);window.removeEventListener('pointerdown',down);window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',up);window.removeEventListener('pointercancel',up);window.removeEventListener('blur',up);document.removeEventListener('visibilitychange',resume);reduced.removeEventListener('change',resume)};
  },[]);
  useEffect(()=>{renderer.current?.setImage(wallpaper)},[wallpaper]);
