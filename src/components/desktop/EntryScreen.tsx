@@ -26,11 +26,11 @@ export function EntryScreen({leaving,ready,onEnter,onRainChange,onSceneChange}:{
     <button type="button" className="entry-silent" disabled={!ready||leaving} onClick={()=>onEnter({scene,rain,fullscreen,sound:false})}>静音进入 <ArrowDownRight size={15}/></button>
    </div>
    <div className="entry-options">
-    <label><input type="checkbox" checked={rain} onChange={e=>{setRain(e.target.checked);onRainChange(e.target.checked)}}/><CloudRain size={13}/>雨滴互动</label>
+    <label><input type="checkbox" checked={rain} onChange={e=>{setRain(e.target.checked);onRainChange(e.target.checked)}}/><CloudRain size={13}/>窗外下雨与雨滴互动</label>
     <label><input type="checkbox" checked={fullscreen} onChange={e=>setFullscreen(e.target.checked)}/><Maximize2 size={12}/>全屏进入</label>
    </div>
   </div>
   <aside className="entry-side-note" aria-hidden="true"><span className="entry-side-line"/><span>此刻，只需要在这里。</span><small>NOTHING TO RUSH.</small></aside>
-  <footer className="entry-footer"><span className="entry-live-dot"/><span>{rain?'轻触泛起涟漪 · 按住划动，拭去水珠':'一张风景，一点自己的时间'}</span><span className="entry-footer-rule"/><span>无需登录，也能留下想法</span></footer>
+  <footer className="entry-footer"><span className="entry-live-dot"/><span>{rain?'窗外落雨 · 按住划动，拭去水珠':'一张风景，一点自己的时间'}</span><span className="entry-footer-rule"/><span>无需登录，也能留下想法</span></footer>
  </section>;
 }

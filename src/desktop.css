@@ -145,3 +145,11 @@
 .desktop-app .paper-sheet{isolation:auto}.desktop-app .paper-topbar{z-index:8;pointer-events:none}.desktop-app .paper-edit-button{pointer-events:auto;z-index:9}.desktop-app .paper-grip{pointer-events:none}
 @media(max-width:760px){.desktop-app .paper-note:not(.is-selected){display:block}.desktop-app .paper-note:not(.is-selected),.desktop-app .paper-note.is-selected{left:var(--note-left)!important;top:var(--note-top)!important;width:min(var(--paper-width),calc(100vw - 42px));max-height:calc(100dvh - 210px)}.desktop-app .paper-drag-surface{height:80px}.desktop-dock{gap:0;padding:6px}.dock-button{width:31px}.dock-divider{margin-inline:2px}}
 @media(max-width:370px){.dock-button{width:27px}.dock-play{width:33px}.desktop-dock{padding:5px}.dock-divider{margin-inline:1px}}
+
+/* Outdoor weather is behind the glass and in front of the dimmed scenery. */
+.outdoor-rain{position:absolute;inset:0;z-index:-3;pointer-events:none;overflow:hidden;isolation:isolate}
+.outdoor-rain>canvas{position:absolute;inset:0;width:100%;height:100%}
+.outdoor-rain-far{filter:blur(1.1px)}.outdoor-rain-middle{filter:blur(.35px)}.outdoor-rain-near{filter:blur(.15px)}
+.outdoor-rain-haze{position:absolute;inset:-12%;background:radial-gradient(ellipse at 30% 20%,#cedce45c,transparent 58%),radial-gradient(ellipse at 75% 65%,#b9cfd336,transparent 55%),linear-gradient(180deg,#c4d4db30,transparent 70%);opacity:calc(var(--rain-strength,.72) * .48);animation:rain-weather-breath 17s ease-in-out infinite alternate}
+@keyframes rain-weather-breath{from{transform:translate3d(-2%,0,0);opacity:calc(var(--rain-strength,.72) * .34)}to{transform:translate3d(3%,1%,0);opacity:calc(var(--rain-strength,.72) * .55)}}
+@media(prefers-reduced-motion:reduce){.outdoor-rain-haze{animation:none;transform:none}}

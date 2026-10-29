@@ -4,6 +4,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {ArrowDownToLine,Archive,LayoutGrid,Check,ChevronRight,Cloud,CloudOff,CloudRain,Expand,Heart,Image,Leaf,LoaderCircle,LogIn,LogOut,Maximize2,Minimize2,MoreHorizontal,NotebookPen,PanelRightClose,Pause,Pencil,Play,Plus,RefreshCw,Settings2,SlidersHorizontal,StickyNote,Sun,Trash2,UserRound,Volume2,Waves,Wind,X,Zap} from 'lucide-react';
 import {PaperNote} from '@/components/PaperNote';
 import {RainGlass} from './RainGlass';
+import {OutdoorRain} from './OutdoorRain';
 import {AccountForm} from './AccountForm';
 import {GlassPanel} from './GlassPanel';
 import {EntryScreen} from './EntryScreen';
@@ -72,7 +73,7 @@ export function Desktop(){
   const audio=sceneAudio(options.scene);
   // Both capabilities start directly in the button gesture, before awaiting work.
   if(options.fullscreen&&!document.fullscreenElement)void toggleFullscreen();
-  board.updatePreferences({audio,rainGlass:options.rain});
+  board.updatePreferences({audio,rainGlass:options.rain,glassFalling:options.rain});
   setEntered(true);showControls();
   if(options.sound)void toggleAudio(audio);
  }
@@ -112,12 +113,14 @@ export function Desktop(){
 
  const title:Record<Exclude<Drawer,null>,string>={sound:'听见此刻',wallpaper:'窗外与雨玻璃',notes:'纸上的小事',note:'这张便利贴',account:user?'我的账号':'登录 / 注册',sync:'本机与云端'};
  const glassActive=entered?prefs.rainGlass:introRain;
+ const outdoorActive=entered?prefs.glassFalling:introRain;
  const selectedNote=activeNote??visibleNotes[0];
  const syncText=board.storageError?'本机保存失败':{loading:'读取本机',local:'已存本机',saving:'同步中',synced:'已同步',offline:'本机已保留',conflict:'有版本待确认'}[board.status];
  return <main className={`note-app desktop-app ${controls?'controls-visible':''} ${entered?'':'is-entrance'}`} style={{'--wallpaper-dim':prefs.dim,'--glass-blur':`${prefs.glassBlur*14}px`} as CSSProperties}>
   <div className="wallpaper-layer" style={prefs.wallpaper?{backgroundImage:`url("${prefs.wallpaper.url}")`,backgroundColor:prefs.wallpaper.color}:undefined}/><div className="wallpaper-shade"/>
+  {outdoorActive&&prefs.outdoorRain>0&&<OutdoorRain intensity={prefs.outdoorRain} wind={prefs.outdoorWind}/>}
   {!entered&&<div className="entry-vignette" aria-hidden="true"/>}
-  {glassActive&&<RainGlass density={prefs.glassDensity} wind={prefs.audio.tracks.wind.enabled?prefs.audio.tracks.wind.intensity:.15} size={prefs.glassSize} refraction={prefs.glassRefraction} pinned={prefs.glassPinned} speed={prefs.glassSpeed} falling={prefs.glassFalling} wallpaper={prefs.wallpaper?.url??''}/>}
+  {glassActive&&<RainGlass density={prefs.glassDensity} wind={prefs.audio.tracks.wind.enabled?prefs.audio.tracks.wind.intensity:.15} size={prefs.glassSize} refraction={prefs.glassRefraction} pinned={prefs.glassPinned} speed={prefs.glassSpeed} wallpaper={prefs.wallpaper?.url??''}/>}
   <button type="button" className="desktop-wordmark" onClick={openEntrance} aria-label="返回静间首页" title="返回首页"><CloudRain size={20} strokeWidth={1.2}/><span>静间</span><small>JUST BE HERE.</small></button>
   {showIntro&&<EntryScreen leaving={entered} ready={board.ready} onEnter={enterDesktop} onRainChange={setIntroRain} onSceneChange={scene=>{const topic=scene==='rain'?'rain':scene;if(config.wallpaper.topics.includes(topic))void nextPhotoRef.current(topic)}}/>}
   {entered&&!prefs.hideNotes&&<div className="paper-board desktop-board" ref={canvasRef} onPointerDown={e=>{if(e.target===e.currentTarget){setSelected(null);setEditing(null)}}} onClick={e=>{if(e.target===e.currentTarget)showControls()}}>

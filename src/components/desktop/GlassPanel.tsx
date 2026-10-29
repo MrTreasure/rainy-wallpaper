@@ -1,15 +1,18 @@
 import {Check,ChevronDown} from 'lucide-react';
 import type {DesktopPreferences} from '@/services/desktop-types';
 
-type GlassRecipe=Pick<DesktopPreferences,'glassDensity'|'glassSize'|'glassBlur'|'glassRefraction'|'glassPinned'|'glassSpeed'|'glassFalling'>;
+type GlassRecipe=Pick<DesktopPreferences,'glassDensity'|'glassSize'|'glassBlur'|'glassRefraction'|'glassPinned'|'glassSpeed'|'glassFalling'|'outdoorRain'|'outdoorWind'>;
 const recipes:{name:string;description:string;settings:GlassRecipe}[]=[
- {name:'细雨朦胧',description:'细密挂珠，窗外微微失焦',settings:{glassDensity:.65,glassSize:.55,glassBlur:.5,glassRefraction:.7,glassPinned:true,glassSpeed:.25,glassFalling:true}},
- {name:'窗上积雨',description:'大颗水珠，安静附着玻璃',settings:{glassDensity:.85,glassSize:.85,glassBlur:.7,glassRefraction:.85,glassPinned:true,glassSpeed:.15,glassFalling:false}},
- {name:'雨夜流淌',description:'水珠缓缓滑落，留下水痕',settings:{glassDensity:.75,glassSize:.7,glassBlur:.65,glassRefraction:.8,glassPinned:false,glassSpeed:.35,glassFalling:true}},
- {name:'初晴留珠',description:'少量挂珠，透过清亮的窗',settings:{glassDensity:.3,glassSize:.65,glassBlur:.15,glassRefraction:.6,glassPinned:true,glassSpeed:.2,glassFalling:false}},
+ {name:'细雨朦胧',description:'细密挂珠，窗外微微失焦',settings:{glassDensity:.65,glassSize:.55,glassBlur:.5,glassRefraction:.7,glassPinned:true,glassSpeed:.25,glassFalling:true,outdoorRain:.48,outdoorWind:.18}},
+ {name:'窗上积雨',description:'窗外持续下雨，玻璃积满水珠',settings:{glassDensity:.85,glassSize:.85,glassBlur:.7,glassRefraction:.85,glassPinned:true,glassSpeed:.15,glassFalling:true,outdoorRain:.82,outdoorWind:.35}},
+ {name:'雨夜流淌',description:'水珠缓缓滑落，留下水痕',settings:{glassDensity:.75,glassSize:.7,glassBlur:.65,glassRefraction:.8,glassPinned:false,glassSpeed:.35,glassFalling:true,outdoorRain:.92,outdoorWind:.65}},
+ {name:'初晴留珠',description:'少量挂珠，透过清亮的窗',settings:{glassDensity:.3,glassSize:.65,glassBlur:.15,glassRefraction:.6,glassPinned:true,glassSpeed:.2,glassFalling:false,outdoorRain:.2,outdoorWind:.15}},
 ];
 export function GlassPanel({preferences:p,onChange}:{preferences:DesktopPreferences;onChange:(patch:Partial<DesktopPreferences>)=>void}){
  return <section className="glass-settings" aria-label="玻璃与水珠设置">
+  <h3 className="panel-subheading">窗外的天气</h3>
+  <GlassToggle label="窗外下雨" description="远近雨幕、斜雨与雨雾；玻璃挂珠固定时也会持续落雨" checked={p.glassFalling} onChange={v=>onChange({glassFalling:v})}/>
+  {p.glassFalling&&<><GlassRange label="窗外雨势" value={p.outdoorRain} onChange={v=>onChange({outdoorRain:v})}/><GlassRange label="斜雨与阵风" value={p.outdoorWind} onChange={v=>onChange({outdoorWind:v})}/></>}
   <h3 className="panel-subheading">眼前的玻璃</h3><p className="glass-description">水珠留在窗上，风景在窗外。</p>
   <div className="glass-recipes">{recipes.map(r=><button type="button" key={r.name} aria-pressed={p.rainGlass&&Object.entries(r.settings).every(([k,v])=>p[k as keyof GlassRecipe]===v)} onClick={()=>onChange({rainGlass:true,...r.settings})}><span>{r.name}<Check size={12}/></span><small>{r.description}</small></button>)}</div>
   <GlassRange label="窗外背景虚化" value={p.glassBlur} onChange={v=>onChange({glassBlur:v})}/>
@@ -21,7 +24,6 @@ export function GlassPanel({preferences:p,onChange}:{preferences:DesktopPreferen
     <GlassRange label="水珠大小" value={p.glassSize} onChange={v=>onChange({glassSize:v})}/>
     <GlassRange label="水珠折射强度" value={p.glassRefraction} onChange={v=>onChange({glassRefraction:v})}/>
     {!p.glassPinned&&<GlassRange label="水珠滑落速度" value={p.glassSpeed} onChange={v=>onChange({glassSpeed:v})}/>}
-    <GlassToggle label="窗外的落雨" description="独立控制远处落雨，不影响玻璃上的挂珠" checked={p.glassFalling} onChange={v=>onChange({glassFalling:v})}/>
    </>}
    <p className="panel-footnote">按住空白玻璃划动，可擦开一小片水珠。便利贴始终清晰。</p>
   </details>

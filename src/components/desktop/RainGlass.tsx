@@ -2,16 +2,15 @@ import {useEffect,useRef} from 'react';
 import {RainRefraction} from './rain-refraction';
 
 type Bead={x:number;y:number;r:number;speed:number;trail:number;phase:number};
-type Streak={x:number;y:number;depth:number;speed:number};
 type Wipe={x:number;y:number;toX:number;toY:number;age:number};
 const TAU=Math.PI*2;
 const clamp=(value:number,min:number,max:number)=>Math.max(min,Math.min(max,value));
 
 /** A live glass surface. Pointer listeners leave notes, controls and scrolling alone. */
-export function RainGlass({density,wind,size,refraction,pinned,speed,falling,wallpaper}:{density:number;wind:number;size:number;refraction:number;pinned:boolean;speed:number;falling:boolean;wallpaper:string}){
- const ref=useRef<HTMLCanvasElement>(null),lens=useRef<HTMLCanvasElement>(null),renderer=useRef<RainRefraction|null>(null),settings=useRef({density,wind,size,refraction,pinned,speed,falling,wallpaper});settings.current={density,wind,size,refraction,pinned,speed,falling,wallpaper};
+export function RainGlass({density,wind,size,refraction,pinned,speed,wallpaper}:{density:number;wind:number;size:number;refraction:number;pinned:boolean;speed:number;wallpaper:string}){
+ const ref=useRef<HTMLCanvasElement>(null),lens=useRef<HTMLCanvasElement>(null),renderer=useRef<RainRefraction|null>(null),settings=useRef({density,wind,size,refraction,pinned,speed,wallpaper});settings.current={density,wind,size,refraction,pinned,speed,wallpaper};
  const redraw=useRef<()=>void>(()=>{});
- useEffect(()=>{redraw.current()},[density,wind,size,refraction,pinned,speed,falling]);
+ useEffect(()=>{redraw.current()},[density,wind,size,refraction,pinned,speed]);
  useEffect(()=>{
   const canvas=ref.current,context=canvas?.getContext('2d');if(!canvas||!context)return;
   const heightmap=document.createElement('canvas'),water=heightmap.getContext('2d'),micro=document.createElement('canvas'),microWater=micro.getContext('2d');
@@ -20,9 +19,9 @@ export function RainGlass({density,wind,size,refraction,pinned,speed,falling,wal
   const reduced=matchMedia('(prefers-reduced-motion: reduce)');
   let width=1,height=1,frame=0,last=0,time=0,microKey='',pressed=false;
   let pointer:{x:number;y:number}|null=null;
-  const beads:Bead[]=[],streaks:Streak[]=[],wipes:Wipe[]=[];
+  const beads:Bead[]=[],wipes:Wipe[]=[];
   const mobile=matchMedia('(max-width:760px)').matches;
-  const beadLimit=mobile?85:145,streakLimit=mobile?90:165;
+  const beadLimit=mobile?85:145;
   function resetBead(bead:Bead,anywhere=false){
    bead.x=Math.random()*width;bead.y=anywhere?Math.random()*height:-25;
    bead.r=1.8+Math.pow(Math.random(),2)*8;bead.speed=2+Math.random()*18;
@@ -32,12 +31,12 @@ export function RainGlass({density,wind,size,refraction,pinned,speed,falling,wal
    const oldWidth=width,oldHeight=height;width=window.innerWidth;height=window.innerHeight;
    const scale=Math.min(devicePixelRatio||1,2,4096/Math.max(width,height));canvas!.width=Math.round(width*scale);canvas!.height=Math.round(height*scale);context!.setTransform(scale,0,0,scale,0,0);
    const maskScale=Math.min(devicePixelRatio||1,2,4096/Math.max(width,height));heightmap.width=Math.round(width*maskScale);heightmap.height=Math.round(height*maskScale);water!.setTransform(maskScale,0,0,maskScale,0,0);
-   if(!beads.length){for(let i=0;i<beadLimit;i++){const bead={} as Bead;resetBead(bead,true);beads.push(bead)}for(let i=0;i<streakLimit;i++)streaks.push({x:Math.random()*width,y:Math.random()*height,depth:.3+Math.random()*.7,speed:190+Math.random()*440})}
-   else{for(const b of beads){b.x=b.x/oldWidth*width;b.y=b.y/oldHeight*height}for(const s of streaks){s.x=s.x/oldWidth*width;s.y=s.y/oldHeight*height}}
+   if(!beads.length){for(let i=0;i<beadLimit;i++){const bead={} as Bead;resetBead(bead,true);beads.push(bead)}}
+   else{for(const b of beads){b.x=b.x/oldWidth*width;b.y=b.y/oldHeight*height}}
    paint(0);
   }
   function buildMicroWater(){
-   const key=`${width}:${height}:${settings.current.density}:${settings.current.size}`;if(key===microKey)return;microKey=key;
+   const key=`${heightmap.width}:${heightmap.height}:${settings.current.density}:${settings.current.size}`;if(key===microKey)return;microKey=key;
    micro.width=heightmap.width;micro.height=heightmap.height;const scale=micro.width/width;microWater!.setTransform(scale,0,0,scale,0,0);
    const count=Math.round(Math.min(1700,width*height/950)*settings.current.density);
    const patches=Array.from({length:18},()=>({x:Math.random()*width,y:Math.random()*height}));
@@ -59,13 +58,6 @@ export function RainGlass({density,wind,size,refraction,pinned,speed,falling,wal
   function paint(dt:number){
    const ctx=context!;const amount=clamp(settings.current.density,0,1),breeze=clamp(settings.current.wind,0,1),slant=.06+breeze*.24;
    time+=dt;ctx.clearRect(0,0,width,height);water!.clearRect(0,0,width,height);water!.globalCompositeOperation='lighten';buildMicroWater();water!.drawImage(micro,0,0,micro.width,micro.height,0,0,width,height);
-   // Distant rain moves quickly; larger water beads pause and run down the glass.
-   if(settings.current.falling&&!reduced.matches)for(let i=0;i<Math.round(streakLimit*(.2+amount*.8));i++){
-    const s=streaks[i];s.y+=s.speed*dt*(.65+amount*.65);s.x+=s.speed*slant*dt;
-    if(s.y>height+100||s.x>width+100){s.y=-80-Math.random()*100;s.x=Math.random()*(width+160)-160}
-    const length=(8+s.depth*22)*(.7+amount*.6);
-    ctx.beginPath();ctx.moveTo(s.x,s.y);ctx.lineTo(s.x-slant*length,s.y-length);const mist=ctx.createLinearGradient(s.x,s.y,s.x-slant*length,s.y-length);mist.addColorStop(0,`rgba(225,242,241,${.025+s.depth*.055})`);mist.addColorStop(1,'rgba(225,242,241,0)');ctx.strokeStyle=mist;ctx.lineWidth=.4+s.depth*.45;ctx.stroke();
-   }
    if(dt&&!settings.current.pinned)for(let i=0;i<Math.round(beadLimit*amount);i++){
     const b=beads[i];if(b.trail<2)continue;
     for(let j=0;j<i;j++){const other=beads[j];if(Math.hypot(b.x-other.x,(b.y-other.y)/1.2)<(b.r+other.r)*(.65+settings.current.size*2.2)*.65){b.r=Math.min(12,Math.sqrt(b.r*b.r+other.r*other.r));b.speed=Math.min(38,b.speed+other.r);resetBead(other);break}}
