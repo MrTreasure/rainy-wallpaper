@@ -1,8 +1,4 @@
-use chrono::{DateTime,Utc};
 use serde::{Deserialize,Serialize};
-use serde_json::Value;
-use tokio_postgres::Row;
-use uuid::Uuid;
 
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(rename_all="camelCase")]
@@ -10,18 +6,6 @@ pub struct User {pub id:String,pub display_name:Option<String>,pub email:Option<
 #[derive(Serialize,Deserialize)]
 #[serde(rename_all="camelCase")]
 pub struct Session {pub user:User,pub application_id:String}
-#[derive(Clone,Serialize,Deserialize)]
-#[serde(rename_all="camelCase",deny_unknown_fields)]
-pub struct Note {
- pub id:Uuid,pub markdown:String,pub color:String,pub x:f64,pub y:f64,pub width:i32,pub height:i32,
- pub angle:f64,pub curl:f64,pub tape:bool,#[serde(default)]pub archived:bool,#[serde(default)]pub version:i64,
- #[serde(default)]pub updated_at:Option<DateTime<Utc>>,
-}
-pub const NOTE_COLUMNS:&str="id,markdown,color,x,y,width,height,angle,curl,tape,archived,version,updated_at";
-impl Note {
- pub fn from_row(r:&Row)->Self{Self{id:r.get("id"),markdown:r.get("markdown"),color:r.get("color"),x:r.get("x"),y:r.get("y"),width:r.get("width"),height:r.get("height"),angle:r.get("angle"),curl:r.get("curl"),tape:r.get("tape"),archived:r.get("archived"),version:r.get("version"),updated_at:Some(r.get("updated_at"))}}
- pub fn valid(&self)->bool{self.markdown.chars().count()<=20000&&valid_color(&self.color)&&within(self.x,-1000.,1100.)&&within(self.y,0.,100.)&&(180..=1000).contains(&self.width)&&(160..=1000).contains(&self.height)&&within(self.angle,-12.,12.)&&within(self.curl,0.,1.)&&self.version>=0}
-}
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct SoundPolicy{pub enabled:bool,pub allowed:Vec<String>,pub master_limit:f64,pub random_enabled:bool,pub variation_max:f64,pub thunder_limit:f64}
@@ -34,9 +18,6 @@ pub struct Config{pub enabled:bool,pub max_notes:i32,pub default_paper_color:Str
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct ConfigRecord{pub data:Config,pub version:i64,pub unsplash_configured:bool}
-#[derive(Serialize,Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Preferences{pub data:Value,pub version:i64}
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(rename_all="camelCase")]
 pub struct Wallpaper{pub id:String,pub url:String,pub thumb:String,pub color:String,pub author:String,pub author_url:String,pub source_url:String,pub description:String,#[serde(default)]pub original_url:Option<String>,#[serde(default)]pub width:Option<i32>,#[serde(default)]pub height:Option<i32>}

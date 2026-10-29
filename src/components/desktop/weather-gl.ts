@@ -1,0 +1,8 @@
+/** Small shared WebGL utilities. Locations and limits are read only at setup. */
+export function weatherContext(canvas:HTMLCanvasElement){return canvas.getContext('webgl',{alpha:true,premultipliedAlpha:true,antialias:false,depth:false,stencil:false,preserveDrawingBuffer:false,powerPreference:'low-power',failIfMajorPerformanceCaveat:true})}
+export function program(gl:WebGLRenderingContext,vertex:string,fragment:string){
+ const compile=(type:number,source:string)=>{const shader=gl.createShader(type);if(!shader)throw Error('Shader allocation failed');gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS)){gl.deleteShader(shader);throw Error('Weather shader unavailable')}return shader};
+ const vs=compile(gl.VERTEX_SHADER,vertex);let fs:WebGLShader|undefined;
+ try{fs=compile(gl.FRAGMENT_SHADER,fragment);const result=gl.createProgram();if(!result)throw Error('Program allocation failed');gl.attachShader(result,vs);gl.attachShader(result,fs);gl.linkProgram(result);if(!gl.getProgramParameter(result,gl.LINK_STATUS)){gl.deleteProgram(result);throw Error('Weather program unavailable')}return result}finally{gl.deleteShader(vs);if(fs)gl.deleteShader(fs)}
+}
+export function texture(gl:WebGLRenderingContext){const result=gl.createTexture();if(!result)throw Error('Texture allocation failed');gl.bindTexture(gl.TEXTURE_2D,result);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);return result}

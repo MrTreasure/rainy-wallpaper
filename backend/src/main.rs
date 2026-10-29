@@ -1,5 +1,5 @@
 mod model;
-mod notes;
+mod usage;
 mod wallpaper;
 mod admin;
 mod registration;
@@ -18,11 +18,11 @@ const APP_ID:&str="rainy-wallpaper";
 const PUBLIC_ORIGIN:&str="https://render.mrtreasure.cc";
 const RAIN_ORIGIN:&str="https://rain.mrtreasure.cc";
 const ADMIN_ORIGIN:&str="https://orbit.mrtreasure.cc";
-struct App{pool:Pool,client:reqwest::Client,identity:IdentityServiceClient<tonic::transport::Channel>,registration:RegistrationServiceClient<tonic::transport::Channel>,rpc_token:String,unsplash:String,limits:Mutex<HashMap<String,(Instant,u32)>>,photo_lock:tokio::sync::Mutex<()>}
+struct App{pool:Pool,client:reqwest::Client,identity:IdentityServiceClient<tonic::transport::Channel>,registration:RegistrationServiceClient<tonic::transport::Channel>,rpc_token:String,unsplash:String,limits:Mutex<HashMap<String,(Instant,u32)>>,photo_locks:Mutex<HashMap<String,Arc<tokio::sync::Mutex<()>>>>}
 type Shared=Arc<App>;
 struct ApiError{status:StatusCode,code:&'static str,message:String,current:Option<Value>}
 type Result<T>=std::result::Result<T,ApiError>;
-impl ApiError{fn new(status:StatusCode,code:&'static str,message:impl Into<String>)->Self{Self{status,code,message:message.into(),current:None}}fn service()->Self{Self::new(StatusCode::SERVICE_UNAVAILABLE,"SERVICE_UNAVAILABLE","保存服务暂不可用，本机修改仍然保留")}}
+impl ApiError{fn new(status:StatusCode,code:&'static str,message:impl Into<String>)->Self{Self{status,code,message:message.into(),current:None}}fn service()->Self{Self::new(StatusCode::SERVICE_UNAVAILABLE,"SERVICE_UNAVAILABLE","查询服务暂不可用，本机内容仍然保留")}}
 impl IntoResponse for ApiError{fn into_response(self)->Response{(self.status,Json(json!({"code":self.code,"message":self.message,"current":self.current}))).into_response()}}
 impl From<tokio_postgres::Error> for ApiError{fn from(_:tokio_postgres::Error)->Self{Self::service()}}
 impl App{
@@ -46,7 +46,7 @@ impl App{
    _=>ApiError::new(StatusCode::SERVICE_UNAVAILABLE,"IDENTITY_UNAVAILABLE","统一登录服务暂不可用，本机内容仍然保留")
   })?.into_inner();
   let u=response.user.ok_or_else(ApiError::service)?;
-  if let Some(expected)=h.get("x-account-id").and_then(|v|v.to_str().ok()){if expected!=u.id{return Err(ApiError::new(StatusCode::CONFLICT,"ACCOUNT_CHANGED","登录账号已变化，请刷新后再同步，本机内容仍然保留"))}}
+  if let Some(expected)=h.get("x-account-id").and_then(|v|v.to_str().ok()){if expected!=u.id{return Err(ApiError::new(StatusCode::CONFLICT,"ACCOUNT_CHANGED","登录账号已变化，请刷新后重试，本机内容仍然保留"))}}
   if u.id.is_empty()||(admin&&!u.is_super_admin){return Err(ApiError::new(StatusCode::FORBIDDEN,"FORBIDDEN","账号无权执行此操作"))}
   if !admin&&!self.config().await?.data.enabled{return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE,"APP_DISABLED","远端服务正在维护，本机内容仍然可用"))}
   Ok(Session{user:User{id:u.id,display_name:u.display_name,email:u.email,is_super_admin:u.is_super_admin,avatar_url:u.avatar_url},application_id:response.application_id})
@@ -57,15 +57,16 @@ async fn headers(State(_app):State<Shared>,req:Request,next:Next)->Response{
  let origin=req.headers().get("origin").and_then(|v|v.to_str().ok()).unwrap_or("").to_string();let extra=std::env::var("PUBLIC_ORIGINS").unwrap_or_default();
  let trusted=origin==PUBLIC_ORIGIN||origin==RAIN_ORIGIN||origin==ADMIN_ORIGIN||extra.split(',').any(|v|!v.trim().is_empty()&&v.trim()==origin);
  let path=req.uri().path();
- let public=matches!(path,"/v1/rainy-wallpaper/config"|"/v1/rainy-wallpaper/wallpapers"|"/v1/rainy-wallpaper/wallpaper/use")||path.starts_with("/v1/rainy-wallpaper/wallpaper/download/");
+ let public=matches!(path,"/v1/rainy-wallpaper/config"|"/v1/rainy-wallpaper/wallpapers"|"/v1/rainy-wallpaper/wallpaper/use"|"/v1/rainy-wallpaper/device"|"/v1/rainy-wallpaper/quota")||path.starts_with("/v1/rainy-wallpaper/wallpaper/download/");
  let public_preview=public&&origin=="https://render.qmuse.pub";
  let valid=trusted||public_preview;
  let mut res=if req.method()=="OPTIONS"{if valid{StatusCode::NO_CONTENT.into_response()}else{ApiError::new(StatusCode::FORBIDDEN,"ORIGIN_DENIED","来源不受支持").into_response()}}
  else if !["GET","HEAD"].contains(&req.method().as_str())&&!valid{ApiError::new(StatusCode::FORBIDDEN,"ORIGIN_DENIED","来源不受支持").into_response()}
  else{next.run(req).await};
  let h=res.headers_mut();h.insert("cache-control",HeaderValue::from_static("no-store"));h.insert("x-content-type-options",HeaderValue::from_static("nosniff"));
- if valid{h.insert("access-control-allow-origin",HeaderValue::from_str(&origin).unwrap());if trusted{h.insert("access-control-allow-credentials",HeaderValue::from_static("true"));}h.insert("vary",HeaderValue::from_static("Origin"));h.insert("access-control-allow-methods",HeaderValue::from_static("GET,POST,PUT,DELETE,OPTIONS"));h.insert("access-control-allow-headers",HeaderValue::from_static("Content-Type,X-Account-Id"));h.insert("access-control-max-age",HeaderValue::from_static("600"));}res
+ if valid{h.insert("access-control-allow-origin",HeaderValue::from_str(&origin).unwrap());if trusted{h.insert("access-control-allow-credentials",HeaderValue::from_static("true"));}h.insert("vary",HeaderValue::from_static("Origin"));h.insert("access-control-allow-methods",HeaderValue::from_static("GET,POST,PUT,DELETE,OPTIONS"));h.insert("access-control-allow-headers",HeaderValue::from_static("Content-Type,X-Account-Id,X-Device-Id,X-Device-Ticket,X-Request-Id"));h.insert("access-control-max-age",HeaderValue::from_static("600"));}res
 }
+async fn local_only()->ApiError{ApiError::new(StatusCode::GONE,"LOCAL_STORAGE_ONLY","内容仅保存在当前浏览器，不提供远端保存或读取")}
 async fn health(State(app):State<Shared>)->Result<Json<Value>>{app.db().await?.simple_query("select 1").await?;Ok(Json(json!({"ok":true,"service":APP_ID,"runtime":"Rust"})))}
 async fn config(State(app):State<Shared>)->Result<Json<ConfigRecord>>{Ok(Json(app.config().await?))}
 async fn session(State(app):State<Shared>,h:HeaderMap)->Result<Json<Session>>{Ok(Json(app.auth(&h,false).await?))}
@@ -81,15 +82,15 @@ async fn main(){
  let endpoint=std::env::var("IDENTITY_RPC_URL").unwrap_or("http://c137-identity-rpc:50051".into());
  let channel=tonic::transport::Endpoint::from_shared(endpoint).expect("Invalid identity RPC address").connect_timeout(Duration::from_secs(3)).tcp_keepalive(Some(Duration::from_secs(60))).http2_keep_alive_interval(Duration::from_secs(60)).keep_alive_timeout(Duration::from_secs(10)).connect().await.expect("Identity RPC unavailable");
  let rpc_token=std::env::var("IDENTITY_RPC_TOKEN").expect("Identity RPC caller credential required");
- let app=Arc::new(App{pool,client:reqwest::Client::builder().connect_timeout(Duration::from_secs(5)).timeout(Duration::from_secs(12)).redirect(reqwest::redirect::Policy::none()).build().unwrap(),identity:IdentityServiceClient::new(channel.clone()),registration:RegistrationServiceClient::new(channel),rpc_token,unsplash:std::env::var("UNSPLASH_ACCESS_KEY").unwrap_or_default(),limits:Mutex::new(HashMap::new()),photo_lock:tokio::sync::Mutex::new(())});
+ let app=Arc::new(App{pool,client:reqwest::Client::builder().connect_timeout(Duration::from_secs(5)).timeout(Duration::from_secs(12)).redirect(reqwest::redirect::Policy::none()).build().unwrap(),identity:IdentityServiceClient::new(channel.clone()),registration:RegistrationServiceClient::new(channel),rpc_token,unsplash:std::env::var("UNSPLASH_ACCESS_KEY").unwrap_or_default(),limits:Mutex::new(HashMap::new()),photo_locks:Mutex::new(HashMap::new())});
  let router=Router::new().route("/healthz",get(health))
  .route("/v1/rainy-wallpaper/auth/register/code",post(registration::code)).route("/v1/rainy-wallpaper/auth/register",post(registration::register))
  .route("/v1/rainy-wallpaper/config",get(config)).route("/v1/rainy-wallpaper/session",get(session))
- .route("/v1/rainy-wallpaper/notes",get(notes::list).post(notes::create))
- .route("/v1/rainy-wallpaper/notes/{id}",put(notes::update).delete(notes::delete))
- .route("/v1/rainy-wallpaper/preferences",get(notes::preferences).put(notes::save_preferences))
+ .route("/v1/rainy-wallpaper/notes",axum::routing::any(local_only)).route("/v1/rainy-wallpaper/notes/{id}",axum::routing::any(local_only))
+ .route("/v1/rainy-wallpaper/preferences",axum::routing::any(local_only))
+ .route("/v1/rainy-wallpaper/device",post(usage::device)).route("/v1/rainy-wallpaper/quota",get(usage::status))
  .route("/v1/rainy-wallpaper/wallpapers",get(wallpaper::list)).route("/v1/rainy-wallpaper/wallpaper/use",post(wallpaper::use_photo)).route("/v1/rainy-wallpaper/wallpaper/download/{id}",get(wallpaper::download))
- .route("/v1/rainy-wallpaper/favorites",get(wallpaper::favorites).post(wallpaper::add_favorite)).route("/v1/rainy-wallpaper/favorites/{id}",axum::routing::delete(wallpaper::delete_favorite))
+ .route("/v1/rainy-wallpaper/favorites",axum::routing::any(local_only)).route("/v1/rainy-wallpaper/favorites/{id}",axum::routing::any(local_only))
  .route("/api/rainy-wallpaper/overview",get(admin::overview)).route("/api/rainy-wallpaper/config",put(admin::save_config)).route("/api/rainy-wallpaper/audit",get(admin::audit))
  .layer(DefaultBodyLimit::max(256*1024)).layer(middleware::from_fn_with_state(app.clone(),headers)).with_state(app);
  let listener=tokio::net::TcpListener::bind("0.0.0.0:8080").await.expect("HTTP listener unavailable");eprintln!("rainy-wallpaper Rust service ready on 8080");

@@ -7,17 +7,20 @@ import "./styles.css";
 import "./note-preview.css";
 import "./desktop.css";
 
+import {initializeAnimationFocus} from './services/render-loop';
+import {installPageAnalytics} from './services/page-analytics';
+initializeAnimationFocus();installPageAnalytics();
 const router = getRouter();
 
 function reportFatalReactError(
-  error: unknown,
+  _error: unknown,
   errorInfo: { componentStack?: string },
 ) {
-  window.__MUSE_PREVIEW_ERROR_CAPTURE__?.reportError(error, {
+  window.__MUSE_PREVIEW_ERROR_CAPTURE__?.reportError(new Error("Application rendering failed"), {
     kind: "react-error-boundary",
     severity: "fatal",
   });
-  console.error(error, errorInfo.componentStack);
+  console.error("Application rendering failed", errorInfo.componentStack);
 }
 
 ReactDOM.createRoot(document.getElementById("root")!, {

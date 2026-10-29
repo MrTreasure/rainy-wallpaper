@@ -159,3 +159,8 @@
 /* Wiping the window must not begin a native text-selection drag. */
 .desktop-app{-webkit-user-select:none;user-select:none}
 .desktop-app .paper-markdown,.desktop-app input,.desktop-app textarea,.desktop-app [contenteditable="true"]{-webkit-user-select:text;user-select:text}
+/* Weather runs through one GPU canvas per effect, without full-screen blur passes. */
+.outdoor-rain-gpu,.outdoor-rain-fallback{filter:none;contain:strict}
+html[data-animation-paused="true"] .desktop-app *,
+html[data-animation-paused="true"] .desktop-app *::before,
+html[data-animation-paused="true"] .desktop-app *::after{animation-play-state:paused!important}

@@ -22,6 +22,8 @@ class AmbientProcessor extends AudioWorkletProcessor {
    const track=this.config.tracks?.[this.names[layer]],out=outputs[layer],s=this.layers[layer];
    if(!out?.length)continue;
    if(!track?.enabled){for(const channel of out)channel.fill(0);continue}
+   // Silent thunder gaps do not synthesize/filter 96,000 noise samples per second.
+   if(layer===2&&s.event===0&&this.time+count*dt<s.nextEvent){for(const channel of out)channel.fill(0);continue}
    const intensity=Math.max(0,Math.min(1,track.intensity??.5)),detail=Math.max(0,Math.min(1,track.detail??.5)),bright=Math.max(0,Math.min(1,track.brightness??.5));
    if(this.time>s.nextChange){s.target=this.config.random?1-Math.random()*Math.min(.9,this.config.variation??.35):1;s.nextChange=this.time+40+Math.random()*80;s.wavePeriod=7+detail*11+Math.random()*2}
    if(!this.config.random)s.target=1;
@@ -29,6 +31,9 @@ class AmbientProcessor extends AudioWorkletProcessor {
    const windEnvelope=.65+.22*Math.sin(this.time*(.14+detail*.2))+.13*Math.sin(this.time*.071+layer);
    const wavePhase=(this.time/s.wavePeriod)%1;
    const waveEnvelope=Math.pow(Math.max(0,Math.sin(wavePhase*Math.PI)),1.5);
+   const thunderLow=layer===2?1-Math.exp(-6.283185*(70+(1-detail)*130)/rate):0;
+   const thunderMid=layer===2?1-Math.exp(-6.283185*(260+(1-detail)*800)/rate):0;
+   const oceanFoam=layer===4?.035*Math.pow(waveEnvelope,.6):0;
    for(let i=0;i<count;i++){
     const now=this.time+i*dt;
     if(layer===2&&now>=s.nextEvent)this.thunder(track,now);
@@ -42,8 +47,8 @@ class AmbientProcessor extends AudioWorkletProcessor {
       value=s[key]*(.17+intensity*.33)+s.bubbles[ch]*Math.sin(s.phase[ch])*.17;
      }else if(layer===1){s[key]+=(noise-s[key])*(.008+bright*.05);value=s[key]*3*(.3+intensity*.7)*windEnvelope;
      }else if(layer===2){
-      s[key]+=(noise-s[key])*(1-Math.exp(-6.283185*(70+(1-detail)*130)/rate));
-      s.mid[ch]+=(noise-s.mid[ch])*(1-Math.exp(-6.283185*(260+(1-detail)*800)/rate));
+      s[key]+=(noise-s[key])*thunderLow;
+      s.mid[ch]+=(noise-s.mid[ch])*thunderMid;
       if(s.event>0){
        const age=s.eventAge,attack=Math.min(1,age/(.09+detail*.24));
        const tail=Math.exp(-age/(s.eventDuration*.28));
@@ -56,7 +61,7 @@ class AmbientProcessor extends AudioWorkletProcessor {
       }
 
      }else if(layer===3){s[key]+=(noise-s[key])*(.07+bright*.25);if(Math.random()<(4+detail*23)/rate){s.bubbles[ch]=.18+Math.random()*.25;s.freq[ch]=400+Math.random()*1400;s.phase[ch]=0}s.bubbles[ch]*=.998;s.phase[ch]+=s.freq[ch]/rate*6.283185;value=s[key]*(.2+intensity*.3)+Math.sin(s.phase[ch])*s.bubbles[ch]*.24;
-     }else{s[key]+=(noise-s[key])*(.025+bright*.12);value=s[key]*2*(.035+waveEnvelope*(.18+intensity*.52));value+=noise*.035*Math.pow(waveEnvelope,.6)}
+     }else{s[key]+=(noise-s[key])*(.025+bright*.12);value=s[key]*2*(.035+waveEnvelope*(.18+intensity*.52));value+=noise*oceanFoam}
      out[ch][i]=Math.tanh(value*s.drift);
     }
    }

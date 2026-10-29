@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, PointerEvent, RefObject } from "react";
 import { Check, GripHorizontal, Pencil, MoveDiagonal2 } from "lucide-react";
 import { reachablePosition } from "@/lib/note-layout";
@@ -27,6 +27,7 @@ export function PaperNote({ note, selected, boardRef, onSelect, onChange, allowO
   const resize = useRef<{ id: number; x: number; y: number; width: number; height: number; centerX: number; centerY: number; boardWidth: number; boardHeight: number } | null>(null);
 
   const current = useRef({note,onChange}); current.current={note,onChange};
+  const toggleTask=useCallback((offset:number)=>{const latest=current.current;latest.onChange({markdown:toggleMarkdownTask(latest.note.markdown,offset)})},[]);
   function bound(x:number,y:number,width?:number,height?:number){
     const board=boardRef.current?.getBoundingClientRect(),paper=paperRef.current?.getBoundingClientRect();
     if(!board||!paper)return {x,y};
@@ -113,7 +114,7 @@ export function PaperNote({ note, selected, boardRef, onSelect, onChange, allowO
             value={note.markdown} placeholder="# 写下你的想法" maxLength={20000} onChange={(event) => onChange({ markdown: event.target.value })}
             onKeyDown={(event) => { if (event.key === "Escape" || (event.key === "Enter" && (event.metaKey || event.ctrlKey))) setEditing(false); }} />
         ) : <MarkdownNote markdown={note.markdown || "*写下你的第一句话……*"}
-          onToggleTask={(offset) => onChange({ markdown: toggleMarkdownTask(note.markdown, offset) })} />}
+          onToggleTask={toggleTask} />}
         <div className="paper-bottom-light" aria-hidden="true" />
       </div>
       {note.tape && <div className="paper-tape" aria-hidden="true" />}

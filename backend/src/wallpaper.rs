@@ -3,7 +3,8 @@ use serde::Deserialize;
 use serde_json::{json,Value};
 use std::time::Duration;
 use url::Url;
-use crate::{Shared,Result,ApiError,model::*};
+use crate::{Shared,Result,ApiError,model::*,usage};
+use uuid::Uuid;
 #[derive(Deserialize)]pub struct Search{topic:Option<String>,exclude:Option<String>}
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct Photo{id:String}
 fn image_url(raw:&str)->Option<Url>{let u=Url::parse(raw).ok()?;if u.scheme()=="https"&&u.host_str()==Some("images.unsplash.com"){Some(u)}else{None}}
@@ -17,12 +18,21 @@ pub async fn list(State(app):State<Shared>,h:HeaderMap,Query(q):Query<Search>)->
  let topic=q.topic.unwrap_or(c.wallpaper.default_topic);if !c.wallpaper.topics.contains(&topic){return Err(ApiError::new(StatusCode::BAD_REQUEST,"INVALID_TOPIC","请选择已开放的壁纸主题"))}
  let exclude=q.exclude.unwrap_or_default();if exclude.len()>128{return Err(ApiError::new(StatusCode::BAD_REQUEST,"INVALID_PHOTO","壁纸编号不正确"))}
  if !app.rate(format!("photos:{}",client_id(&h)),30,Duration::from_secs(60)){return Err(ApiError::new(StatusCode::TOO_MANY_REQUESTS,"RATE_LIMITED","切换太快了，稍后再试"))}
- let _guard=app.photo_lock.lock().await;let mut items=cached(&app,&topic,&exclude,&c.wallpaper.blocked).await?;
- if items.len()<3&&!app.unsplash.is_empty()&&app.rate("unsplash-global".into(),40,Duration::from_secs(3600)){
-  if let Ok(fetched)=fetch(&app,&topic).await{let db=app.db().await?;for p in fetched{let data=serde_json::to_value(&p).unwrap();db.execute("insert into wallpapers(photo_id,topic,data) values($1,$2,$3) on conflict(photo_id) do update set topic=excluded.topic,data=excluded.data,fetched_at=now()",&[&p.id,&topic,&data]).await?;}items=cached(&app,&topic,&exclude,&c.wallpaper.blocked).await?}
+ let id=h.get("x-request-id").and_then(|v|v.to_str().ok()).and_then(|v|Uuid::parse_str(v).ok()).ok_or_else(||ApiError::new(StatusCode::BAD_REQUEST,"REQUEST_ID_REQUIRED","请刷新页面后重试查询"))?;
+ let actor=usage::actor(&app,&h).await?;let reservation=usage::Reservation::claim(&app,actor,id).await?;
+ // A cold category must never hold up cached categories.
+ let mut items=cached(&app,&topic,&exclude,&c.wallpaper.blocked).await?;
+ if items.is_empty()&&!app.unsplash.is_empty(){
+  let lock={let mut locks=app.photo_locks.lock().map_err(|_|ApiError::service())?;locks.entry(topic.clone()).or_insert_with(||std::sync::Arc::new(tokio::sync::Mutex::new(()))).clone()};
+  let _guard=lock.lock().await;items=cached(&app,&topic,&exclude,&c.wallpaper.blocked).await?;
+  if items.is_empty()&&app.rate("unsplash-global".into(),40,Duration::from_secs(3600)){
+   if let Ok(fetched)=fetch(&app,&topic).await{let db=app.db().await?;for p in fetched{let data=serde_json::to_value(&p).unwrap();db.execute("insert into wallpapers(photo_id,topic,data) values($1,$2,$3) on conflict(photo_id) do update set topic=excluded.topic,data=excluded.data,fetched_at=now()",&[&p.id,&topic,&data]).await?;}items=cached(&app,&topic,&exclude,&c.wallpaper.blocked).await?}
+  }
  }
- if items.is_empty(){return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE,"WALLPAPERS_UNAVAILABLE","Unsplash 暂时不可用，当前壁纸会保留"))}Ok(Json(json!({"items":items})))
+ if items.is_empty(){return Err(ApiError::new(StatusCode::SERVICE_UNAVAILABLE,"WALLPAPERS_UNAVAILABLE","Unsplash 暂时不可用，当前壁纸会保留"))}
+ items.truncate(1);let quota=reservation.complete().await?;Ok(Json(json!({"items":items,"quota":quota})))
 }
+
 fn topic_query(topic:&str)->String{match topic{
  "forest"=>"misty forest landscape".into(),"ocean"=>"ocean coast beach".into(),
  "mountain"=>"misty mountain landscape".into(),"rain"=>"rainy window street".into(),
@@ -49,11 +59,6 @@ pub async fn use_photo(State(app):State<Shared>,h:HeaderMap,Json(p):Json<Photo>)
   if !response.map(|r|r.status().is_success()).unwrap_or(false){if let Ok(mut limits)=app.limits.lock(){limits.remove(&key);}return Err(ApiError::new(StatusCode::BAD_GATEWAY,"TRACKING_UNAVAILABLE","壁纸已显示，来源统计稍后重试"))}
  }Ok(StatusCode::NO_CONTENT)
 }
-pub async fn favorites(State(app):State<Shared>,h:HeaderMap)->Result<Json<Value>>{let user=app.auth(&h,false).await?.user;let rows=app.db().await?.query("select w.data from favorites f join wallpapers w on w.photo_id=f.photo_id where f.owner_id=$1 order by f.created_at desc limit 200",&[&user.id]).await?;Ok(Json(json!({"items":rows.iter().map(|r|r.get::<_,Value>(0)).collect::<Vec<_>>()})))}
-pub async fn add_favorite(State(app):State<Shared>,h:HeaderMap,Json(p):Json<Photo>)->Result<Json<Value>>{let user=app.auth(&h,false).await?.user;if !valid_photo(&p.id){return Err(ApiError::new(StatusCode::BAD_REQUEST,"INVALID_PHOTO","壁纸编号不正确"))}let count=app.db().await?.execute("insert into favorites(owner_id,photo_id) select $1,photo_id from wallpapers where photo_id=$2 and (select count(*) from favorites where owner_id=$1)<200 on conflict do nothing",&[&user.id,&p.id]).await?;Ok(Json(json!({"saved":count>0})))}
-pub async fn delete_favorite(State(app):State<Shared>,h:HeaderMap,Path(id):Path<String>)->Result<StatusCode>{let user=app.auth(&h,false).await?.user;if !valid_photo(&id){return Err(ApiError::new(StatusCode::BAD_REQUEST,"INVALID_PHOTO","壁纸编号不正确"))}app.db().await?.execute("delete from favorites where owner_id=$1 and photo_id=$2",&[&user.id,&id]).await?;Ok(StatusCode::NO_CONTENT)}
-
-
 pub async fn download(State(app):State<Shared>,h:HeaderMap,Path(id):Path<String>)->Result<axum::response::Response>{
  use axum::response::{IntoResponse,Redirect};
  if !valid_photo(&id){return Err(ApiError::new(StatusCode::BAD_REQUEST,"INVALID_PHOTO","壁纸编号不正确"))}

@@ -19,6 +19,7 @@ export function AccountForm({onSuccess}:{onSuccess:(user:User)=>void}){
   setPassword('');onSuccess(result.user);
  }catch(e){failed(e)}finally{setBusy(false)}}
  return <div className="account-form">
+  <p className="panel-footnote">匿名设备每天可查询 10 次新壁纸，普通账号每天 50 次；重复使用本机历史不扣次数。每天按北京时间重置。登录仅用于查询额度。</p>
   <div className="account-tabs" role="group" aria-label="账号操作"><button type="button" aria-pressed={mode==='login'} onClick={()=>changeMode('login')} disabled={busy||sending}>登录</button><button type="button" aria-pressed={mode==='register'} onClick={()=>changeMode('register')} disabled={busy||sending}>注册</button></div>
   <form className="desktop-login" onSubmit={submit}>
    <label>邮箱<input type="email" autoComplete="username" required value={email} onChange={e=>{setEmail(e.target.value);setChallenge('');setCode('');setSent(false);setHint(false);setError('')}} maxLength={254} placeholder="请输入邮箱" disabled={busy||sending}/></label>
@@ -28,7 +29,7 @@ export function AccountForm({onSuccess}:{onSuccess:(user:User)=>void}){
    {error&&<p role="alert" className="panel-error">{error}</p>}
    {hint&&<div className="account-existing-hint"><p>你是否曾在战雷工作台注册过？可以使用相同的邮箱和密码登录这里。</p>{mode==='register'&&<button type="button" onClick={()=>changeMode('login')}>使用已有账号登录</button>}</div>}
    <button type="submit" className="panel-primary" disabled={busy||sending}>{busy?<LoaderCircle size={15} className="spin"/>:<LogIn size={15}/>} {mode==='login'?'登录':'注册并登录'}</button>
-   <p className="panel-footnote">不登录也能在本机保存。登录后，草稿会合并到账号，方便在不同设备继续使用。</p>
+   <p className="panel-footnote">便利贴、收藏、壁纸历史与设置仅存当前浏览器，登录后也不上传、不跨设备同步。清除浏览器数据后无法自动恢复，请定期导出备份。</p>
   </form>
  </div>;
 }

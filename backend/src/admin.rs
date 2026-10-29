@@ -4,8 +4,13 @@ use serde_json::{json,Value};
 use crate::{Shared,Result,ApiError,model::*};
 
 pub async fn overview(State(app):State<Shared>,h:HeaderMap)->Result<Json<Value>>{
- app.auth(&h,true).await?;let config=app.config().await?;let row=app.db().await?.query_one("select (select count(distinct owner_id) from notes) as users,(select count(*) from notes) as notes,(select count(*) from favorites) as favorites,(select count(*) from wallpapers) as wallpapers",&[]).await?;
- Ok(Json(json!({"config":config,"stats":{"users":row.get::<_,i64>("users"),"notes":row.get::<_,i64>("notes"),"favorites":row.get::<_,i64>("favorites"),"wallpapers":row.get::<_,i64>("wallpapers")},"service":"Rust / PostgreSQL","applicationId":"rainy-wallpaper","synthesis":"浏览器实时合成，后台保存策略与参数"})))
+ app.auth(&h,true).await?;let config=app.config().await?;let db=app.db().await?;
+ let row=db.query_one("select coalesce(sum(succeeded),0)::bigint queries,coalesce(sum(failed),0)::bigint failed,count(distinct actor_key)::bigint actors,count(distinct actor_key) filter(where actor_kind='user')::bigint users,count(distinct actor_key) filter(where actor_kind='device')::bigint devices,coalesce(sum(succeeded) filter(where day=(now() at time zone 'Asia/Shanghai')::date),0)::bigint today,(select count(*) from wallpapers)::bigint wallpapers from wallpaper_usage",&[]).await?;
+ let days=db.query("select day,sum(succeeded)::bigint queries,sum(failed)::bigint failed,count(distinct actor_key)::bigint actors from wallpaper_usage group by day order by day desc limit 30",&[]).await?;
+ let recent=db.query("select actor_key,actor_kind,day,used,succeeded,failed,updated_at from wallpaper_usage order by updated_at desc limit 100",&[]).await?;
+ let daily:Vec<Value>=days.iter().map(|r|json!({"day":r.get::<_,chrono::NaiveDate>("day"),"queries":r.get::<_,i64>("queries"),"failed":r.get::<_,i64>("failed"),"actors":r.get::<_,i64>("actors")})).collect();
+ let counters:Vec<Value>=recent.iter().map(|r|json!({"actorId":r.get::<_,String>("actor_key"),"kind":r.get::<_,String>("actor_kind"),"day":r.get::<_,chrono::NaiveDate>("day"),"used":r.get::<_,i32>("used"),"queries":r.get::<_,i32>("succeeded"),"failed":r.get::<_,i32>("failed"),"updatedAt":r.get::<_,chrono::DateTime<chrono::Utc>>("updated_at")})).collect();
+ Ok(Json(json!({"config":config,"stats":{"queries":row.get::<_,i64>("queries"),"today":row.get::<_,i64>("today"),"failed":row.get::<_,i64>("failed"),"actors":row.get::<_,i64>("actors"),"users":row.get::<_,i64>("users"),"devices":row.get::<_,i64>("devices"),"wallpapers":row.get::<_,i64>("wallpapers")},"daily":daily,"counters":counters,"service":"Rust / PostgreSQL","storage":"local-only","synthesis":"浏览器实时合成，个人内容仅存本机"})))
 }
 #[derive(Deserialize)]#[serde(deny_unknown_fields)]pub struct Change{data:Config,version:i64}
 pub async fn save_config(State(app):State<Shared>,h:HeaderMap,Json(c):Json<Change>)->Result<Json<ConfigRecord>>{

@@ -1,10 +1,10 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check } from "lucide-react";
 
-export function MarkdownNote({ markdown, onToggleTask }: { markdown: string; onToggleTask: (offset: number) => void }) {
+export const MarkdownNote=memo(function MarkdownNote({ markdown, onToggleTask }: { markdown: string; onToggleTask: (offset: number) => void }) {
   const components = useMemo<Components>(() => ({
     input: () => null,
     a: ({ node: _node, children, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer">{children}</a>,
@@ -24,4 +24,4 @@ export function MarkdownNote({ markdown, onToggleTask }: { markdown: string; onT
     },
   }), [markdown, onToggleTask]);
   return <div className="paper-markdown"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components} skipHtml>{markdown}</ReactMarkdown></div>;
-}
+});

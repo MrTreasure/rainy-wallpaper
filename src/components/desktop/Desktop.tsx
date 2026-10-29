@@ -1,7 +1,7 @@
 import {useCallback,useEffect,useRef,useState} from 'react';
 import type {CSSProperties} from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import {ArrowDownToLine,Archive,LayoutGrid,Check,ChevronRight,Cloud,CloudOff,CloudRain,Expand,Heart,Image,Leaf,LoaderCircle,LogIn,LogOut,Maximize2,Minimize2,MoreHorizontal,NotebookPen,PanelRightClose,Pause,Pencil,Play,Plus,RefreshCw,Settings2,SlidersHorizontal,StickyNote,Sun,Trash2,UserRound,Volume2,Waves,Wind,X,Zap} from 'lucide-react';
+import {ArrowDownToLine,Archive,LayoutGrid,Check,ChevronRight,CloudRain,Expand,Heart,Image,Leaf,LoaderCircle,LogIn,LogOut,Maximize2,Minimize2,MoreHorizontal,NotebookPen,PanelRightClose,Pause,Pencil,Play,Plus,RefreshCw,Settings2,SlidersHorizontal,StickyNote,Sun,Trash2,UserRound,Volume2,Waves,Wind,X,Zap} from 'lucide-react';
 import {PaperNote} from '@/components/PaperNote';
 import {RainGlass} from './RainGlass';
 import {OutdoorRain} from './OutdoorRain';
@@ -12,16 +12,19 @@ import type {EntryOptions} from './EntryScreen';
 import {PAPER_COLORS,noteTitle} from '@/lib/notes';
 import {arrangeNotePositions} from '@/lib/note-layout';
 import {useBoard} from '@/hooks/use-board';
-import {api,ApiFailure,logout,API_BASE,CAN_SYNC,CANONICAL_SITE} from '@/services/api';
+import {api,ApiFailure,logout,API_BASE,CAN_AUTH,CANONICAL_SITE} from '@/services/api';
 import {DEFAULT_CONFIG,defaultAudio,SOUND_KINDS} from '@/services/desktop-types';
 import type {AudioSettings,AppConfig,ConfigRecord,SoundKind,TrackSettings,User,Wallpaper} from '@/services/desktop-types';
-import {highResolutionWallpaper} from '@/services/wallpaper-image';
+import {highResolutionWallpaper,displayWallpaperUrl} from '@/services/wallpaper-image';
+import {abortableDelay,loadWallpaperImage,queryWallpaper,wallpaperQuota} from '@/services/wallpaper-query';
+import type {WallpaperQuota} from '@/services/wallpaper-query';
+import {animationsActive} from '@/services/render-loop';
 import {AmbientEngine} from '@/audio/engine';
 import {RAIN_PRESETS,rainPresetAudio,rainPresetPreferences,rainIsEnabled} from '@/services/rain-presets';
 
 const sounds:{id:SoundKind;name:string;icon:typeof Wind;a:string;b:string}[]=[{id:'rain',name:'雨声',icon:CloudRain,a:'雨滴密度',b:'雨滴大小'},{id:'wind',name:'风声',icon:Wind,a:'风力',b:'阵风起伏'},{id:'thunder',name:'雷声',icon:Zap,a:'出现频率',b:'远近与回响'},{id:'stream',name:'溪水',icon:Leaf,a:'水流强度',b:'气泡细节'},{id:'ocean',name:'海浪',icon:Waves,a:'浪的大小',b:'涌浪周期'}];
 const topics:Record<string,string>={forest:'森林',ocean:'海边',mountain:'山野',rain:'雨天',city:'城市',flowers:'花草',jiangnan:'江南雨巷',wilderness:'荒野'};
-type Drawer='sound'|'wallpaper'|'notes'|'note'|'account'|'sync'|null;
+type Drawer='sound'|'wallpaper'|'notes'|'note'|'account'|'storage'|null;
 const credit='https://qmuse.cn/oauth-login?inviteCode=QMUSE-B0E123AB';
 function sceneAudio(kind:'rain'|'forest'|'ocean'|'stream'){
  const audio=defaultAudio();for(const track of SOUND_KINDS)audio.tracks[track].enabled=false;
@@ -35,7 +38,7 @@ function sceneAudio(kind:'rain'|'forest'|'ocean'|'stream'){
 
 export function Desktop(){
  const [user,setUser]=useState<User|null>(null),[config,setConfig]=useState<AppConfig>(DEFAULT_CONFIG),[connected,setConnected]=useState(false);
- const board=useBoard(user),prefs=board.board.preferences;
+ const board=useBoard(),prefs=board.board.preferences;
  const [entered,setEntered]=useState(false),[showIntro,setShowIntro]=useState(true),[introRain,setIntroRain]=useState(true);
  useEffect(()=>{if(!entered)return;const timer=setTimeout(()=>setShowIntro(false),700);return()=>clearTimeout(timer)},[entered]);
  const [selected,setSelected]=useState<string|null>(null),[editing,setEditing]=useState<string|null>(null),[drawer,setDrawer]=useState<Drawer>(null);
@@ -43,8 +46,9 @@ export function Desktop(){
  const [photoBusy,setPhotoBusy]=useState(false),[toast,setToast]=useState(''),[deleted,setDeleted]=useState<string|null>(null);
 
  const canvasRef=useRef<HTMLDivElement>(null),dockRef=useRef<HTMLDivElement>(null),engine=useRef(new AmbientEngine()),hideTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+ const photoRequest=useRef<AbortController|null>(null),[shownImage,setShownImage]=useState<{id:string;url:string}|null>(null),[quota,setQuota]=useState<WallpaperQuota|null>(null);
  const photoSeq=useRef(0),initialPhoto=useRef(false),latest=useRef({prefs,board,config,drawer});latest.current={prefs,board,config,drawer};
- const visibleNotes=board.board.notes.filter(n=>!n.deleted&&!n.archived),activeNote=visibleNotes.find(n=>n.id===selected);
+ const visibleNotes=board.board.notes.filter(n=>!n.archived),activeNote=visibleNotes.find(n=>n.id===selected);
  useEffect(()=>{if(board.ready&&visibleNotes.length&&!visibleNotes.some(n=>n.id===selected))setSelected(visibleNotes[0].id)},[board.ready,visibleNotes,selected]);
  useEffect(()=>{document.title='静间 · 白噪音与 Markdown 便利贴'},[]);
  const notify=useCallback((message:string)=>setToast(message),[]);
@@ -53,7 +57,7 @@ export function Desktop(){
   let cancelled=false;
   api<ConfigRecord>('/config').then(c=>{if(!cancelled){setConfig(c.data);setConnected(true)}}).catch(()=>{if(!cancelled)notify('远端暂不可用，你仍然可以在本机使用便利贴和声音')});
   const session=()=>api<{user:User}>('/session').then(s=>{if(!cancelled)setUser(s.user)}).catch(e=>{if(!cancelled&&e instanceof ApiFailure&&[401,403].includes(e.status))setUser(null)});
-  if(CAN_SYNC)void session();const visible=()=>{if(CAN_SYNC&&document.visibilityState==='visible')void session()};document.addEventListener('visibilitychange',visible);
+  if(CAN_AUTH)void session();const visible=()=>{if(CAN_AUTH&&document.visibilityState==='visible')void session()};document.addEventListener('visibilitychange',visible);
   return()=>{cancelled=true;document.removeEventListener('visibilitychange',visible)};
  },[notify]);
  useEffect(()=>{engine.current.update(prefs.audio,config.sound)},[prefs.audio,config.sound]);
@@ -86,18 +90,35 @@ export function Desktop(){
   void engine.current.pause();setPlaying(false);
  }
 
- async function nextWallpaper(topic=latest.current.prefs.topic){
-  const seq=++photoSeq.current;setPhotoBusy(true);
-  try{const current=latest.current.prefs.wallpaper;const data=await api<{items:Wallpaper[]}>(`/wallpapers?topic=${encodeURIComponent(topic)}&exclude=${encodeURIComponent(current?.id??'')}`);const result=data.items[0];if(!result)throw new Error('这个主题暂时没有可用壁纸');const photo=highResolutionWallpaper(result);
-   await new Promise<void>((resolve,reject)=>{const image=new window.Image();const timeout=setTimeout(()=>{image.onload=null;image.onerror=null;reject(new Error('壁纸加载超时，当前画面会保留'))},30000);image.onload=()=>{clearTimeout(timeout);resolve()};image.onerror=()=>{clearTimeout(timeout);reject(new Error('壁纸暂时无法加载，当前画面会保留'))};image.src=photo.url});
-   if(seq!==photoSeq.current)return;latest.current.board.updatePreferences({wallpaper:photo,topic});
-   void api<void>('/wallpaper/use',{method:'POST',body:JSON.stringify({id:photo.id})}).catch(()=>{setTimeout(()=>{void api<void>('/wallpaper/use',{method:'POST',body:JSON.stringify({id:photo.id})}).catch(()=>{})},3000)});
-  }catch(e){if(seq===photoSeq.current)notify(e instanceof Error?e.message:'壁纸暂时不可用')}finally{if(seq===photoSeq.current)setPhotoBusy(false)}
+ async function showWallpaper(result:Wallpaper,topic:string,signal:AbortSignal){
+  const photo=highResolutionWallpaper(result);const preview=photo.thumb;
+  await loadWallpaperImage(preview,signal);signal.throwIfAborted();
+  latest.current.board.rememberWallpaper(photo,topic);setShownImage({id:photo.id,url:preview});
+  void api<void>('/wallpaper/use',{method:'POST',body:JSON.stringify({id:photo.id})}).catch(()=>{});
+  // The first usable preview is shown immediately; sharp pixels arrive later.
+  const full=displayWallpaperUrl(photo);await loadWallpaperImage(full,signal);signal.throwIfAborted();setShownImage({id:photo.id,url:full});
  }
+ async function nextWallpaper(topic=latest.current.prefs.topic){
+  photoRequest.current?.abort();const controller=new AbortController();photoRequest.current=controller;
+  const seq=++photoSeq.current;setPhotoBusy(true);
+  try{
+   await abortableDelay(280,controller.signal);const current=latest.current.prefs.wallpaper;
+   const data=await queryWallpaper(topic,current?.id??'',controller.signal);setQuota(data.quota);
+   const photo=data.items[0];if(!photo)throw new Error('这个主题暂时没有可用壁纸');
+   await showWallpaper(photo,topic,controller.signal);
+  }catch(e){if(!controller.signal.aborted&&seq===photoSeq.current){notify(e instanceof Error?e.message:'壁纸暂时不可用');void wallpaperQuota().then(setQuota).catch(()=>{})}}
+  finally{if(seq===photoSeq.current)setPhotoBusy(false)}
+ }
+ function selectLocalWallpaper(photo:Wallpaper,topic=latest.current.prefs.topic){
+  photoRequest.current?.abort();const controller=new AbortController();photoRequest.current=controller;const seq=++photoSeq.current;setPhotoBusy(true);
+  void showWallpaper(photo,topic,controller.signal).catch(e=>{if(!controller.signal.aborted)notify(e instanceof Error?e.message:'图片暂不可用')}).finally(()=>{if(seq===photoSeq.current)setPhotoBusy(false)});
+ }
+ useEffect(()=>{void wallpaperQuota().then(setQuota).catch(()=>{});photoRequest.current?.abort();photoSeq.current++;setPhotoBusy(false)},[user?.id]);
+ useEffect(()=>()=>{photoRequest.current?.abort()},[]);
  const nextPhotoRef=useRef(nextWallpaper);nextPhotoRef.current=nextWallpaper;
  useEffect(()=>{if(!board.ready||initialPhoto.current)return;initialPhoto.current=true;if(!prefs.wallpaper)void nextPhotoRef.current()},[board.ready,prefs.wallpaper]);
- useEffect(()=>{if(!config.wallpaper.allowAuto||!prefs.autoWallpaper)return;const timer=setInterval(()=>{if(!document.hidden)void nextPhotoRef.current()},Math.max(5,config.wallpaper.intervalMinutes)*60000);return()=>clearInterval(timer)},[config.wallpaper.allowAuto,config.wallpaper.intervalMinutes,prefs.autoWallpaper]);
- function addNote(){if(board.board.notes.filter(n=>!n.deleted).length>=config.maxNotes){notify('当前便利贴数量已达到上限');return}const id=board.addNote(config.defaultPaperColor);setSelected(id);setEditing(id);showControls()}
+ useEffect(()=>{if(!config.wallpaper.allowAuto||!prefs.autoWallpaper)return;const timer=setInterval(()=>{if(animationsActive())void nextPhotoRef.current()},Math.max(5,config.wallpaper.intervalMinutes)*60000);return()=>clearInterval(timer)},[config.wallpaper.allowAuto,config.wallpaper.intervalMinutes,prefs.autoWallpaper]);
+ function addNote(){if(board.board.notes.length>=config.maxNotes){notify('当前便利贴数量已达到上限');return}const id=board.addNote(config.defaultPaperColor);setSelected(id);setEditing(id);showControls()}
  function arrangeNotes(){
   const area=canvasRef.current?.getBoundingClientRect()??{width:innerWidth- (innerWidth<=760?36:52),height:innerHeight-(innerWidth<=760?185:130)};
   board.arrangeNotes(arrangeNotePositions(visibleNotes,area.width,area.height,{width:innerWidth,height:innerHeight}));
@@ -106,32 +127,32 @@ export function Desktop(){
  const actions=useRef({addNote,toggleAudio,toggleFullscreen});actions.current={addNote,toggleAudio,toggleFullscreen};
  useEffect(()=>{const key=(event:KeyboardEvent)=>{if(!entered)return;if(event.target instanceof HTMLElement&&(event.target.matches('input,textarea,select')||event.target.isContentEditable))return;if(event.ctrlKey||event.metaKey||event.altKey)return;if(event.key.toLowerCase()==='f'){event.preventDefault();void actions.current.toggleFullscreen()}if(event.key.toLowerCase()==='n'){event.preventDefault();actions.current.addNote()}if(event.code==='Space'){event.preventDefault();void actions.current.toggleAudio()}if(event.key.toLowerCase()==='h'){event.preventDefault();latest.current.board.updatePreferences({hideNotes:!latest.current.prefs.hideNotes});setControls(false)}if(event.key==='Escape'){setDrawer(null);setEditing(null);showControls()}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[showControls,entered]);
 
- async function signOut(){try{await logout();setUser(null);setSelected(null);setEditing(null);notify('已退出登录，账号笔记保留在独立本机空间')}catch(e){notify(e instanceof Error?e.message:'退出失败，请重试')}}
- function exportNotes(){const data={format:'rainy-wallpaper-notes',version:1,notes:board.board.notes.filter(n=>!n.deleted).map(({dirty:_d,conflict:_c,...n})=>n),preferences:prefs};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='我的便利贴-'+new Date().toISOString().slice(0,10)+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+ async function signOut(){try{await logout();setUser(null);setSelected(null);setEditing(null);notify('已退出登录，本机便利贴和设置保持不变')}catch(e){notify(e instanceof Error?e.message:'退出失败，请重试')}}
+ function exportNotes(){const data={format:'rainy-wallpaper-notes',version:2,notes:board.board.notes,preferences:prefs,wallpaperHistory:board.board.wallpaperHistory};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='我的便利贴-'+new Date().toISOString().slice(0,10)+'.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
  function favorite(){const photo=prefs.wallpaper;if(!photo)return;const exists=prefs.favoritePhotos.some(p=>p.id===photo.id);board.updatePreferences({favoritePhotos:exists?prefs.favoritePhotos.filter(p=>p.id!==photo.id):[photo,...prefs.favoritePhotos].slice(0,20)})}
  function removeFavorite(id:string){
   board.updatePreferences({favoritePhotos:prefs.favoritePhotos.filter(photo=>photo.id!==id)});
   notify('已从收藏移除');
  }
 
- const title:Record<Exclude<Drawer,null>,string>={sound:'听见此刻',wallpaper:'窗外与雨玻璃',notes:'纸上的小事',note:'这张便利贴',account:user?'我的账号':'登录 / 注册',sync:'本机与云端'};
+ const title:Record<Exclude<Drawer,null>,string>={sound:'听见此刻',wallpaper:'窗外与雨玻璃',notes:'纸上的小事',note:'这张便利贴',account:user?'我的账号':'登录 / 注册',storage:'本机保存'};
  const glassActive=entered?prefs.rainGlass:introRain;
  const rainEnabled=rainIsEnabled(prefs.audio);
  const outdoorActive=rainEnabled&&(entered?prefs.glassFalling:introRain);
  const selectedNote=activeNote??visibleNotes[0];
- const syncText=board.storageError?'本机保存失败':{loading:'读取本机',local:'已存本机',saving:'同步中',synced:'已同步',offline:'本机已保留',conflict:'有版本待确认'}[board.status];
+ const syncText=board.storageError?'本机保存失败':{loading:'读取本机',local:'已存本机',saving:'保存中',offline:'保存失败'}[board.status];
  return <main className={`note-app desktop-app ${controls?'controls-visible':''} ${entered?'':'is-entrance'}`} style={{'--wallpaper-dim':prefs.dim,'--glass-blur':`${prefs.glassBlur*14}px`} as CSSProperties}>
-  <div className="wallpaper-layer" style={prefs.wallpaper?{backgroundImage:`url("${prefs.wallpaper.url}")`,backgroundColor:prefs.wallpaper.color}:undefined}/><div className="wallpaper-shade"/>
+  <div className="wallpaper-layer" style={prefs.wallpaper?{backgroundImage:`url("${shownImage?.id===prefs.wallpaper.id?shownImage.url:displayWallpaperUrl(prefs.wallpaper)}")`,backgroundColor:prefs.wallpaper.color}:undefined}/><div className="wallpaper-shade"/>
   {outdoorActive&&prefs.outdoorRain>0&&<OutdoorRain intensity={prefs.outdoorRain} wind={prefs.outdoorWind}/>}
   {!entered&&<div className="entry-vignette" aria-hidden="true"/>}
-  {glassActive&&<RainGlass raining={outdoorActive&&prefs.outdoorRain>0} rainfall={prefs.outdoorRain} density={prefs.glassDensity} wind={prefs.audio.tracks.wind.enabled?prefs.audio.tracks.wind.intensity:.15} size={prefs.glassSize} refraction={prefs.glassRefraction} pinned={prefs.glassPinned} speed={prefs.glassSpeed} wallpaper={prefs.wallpaper?.url??''}/>}
+  {glassActive&&<RainGlass raining={outdoorActive&&prefs.outdoorRain>0} rainfall={prefs.outdoorRain} density={prefs.glassDensity} wind={prefs.audio.tracks.wind.enabled?prefs.audio.tracks.wind.intensity:.15} size={prefs.glassSize} refraction={prefs.glassRefraction} pinned={prefs.glassPinned} speed={prefs.glassSpeed} wallpaper={prefs.wallpaper?(shownImage?.id===prefs.wallpaper.id?shownImage.url:displayWallpaperUrl(prefs.wallpaper)):''}/>}
   <button type="button" className="desktop-wordmark" onClick={openEntrance} aria-label="返回静间首页" title="返回首页"><CloudRain size={20} strokeWidth={1.2}/><span>静间</span><small>JUST BE HERE.</small></button>
   {showIntro&&<EntryScreen leaving={entered} ready={board.ready} onEnter={enterDesktop} onRainChange={setIntroRain} onSceneChange={scene=>{const topic=scene==='rain'?'rain':scene;if(config.wallpaper.topics.includes(topic))void nextPhotoRef.current(topic)}}/>}
   {entered&&!prefs.hideNotes&&<div className="paper-board desktop-board" ref={canvasRef} onPointerDown={e=>{if(e.target===e.currentTarget){setSelected(null);setEditing(null)}}} onClick={e=>{if(e.target===e.currentTarget)showControls()}}>
    {visibleNotes.map(note=><PaperNote allowOverflow key={note.id} note={note} selected={note.id===selected} boardRef={canvasRef} onSelect={()=>setSelected(note.id)} onChange={patch=>board.changeNote(note.id,patch)} editing={editing===note.id} onEditingChange={value=>setEditing(value?note.id:null)}/>)}
   </div>}
   {entered&&prefs.hideNotes&&<button type="button" className="wake-surface" aria-label="唤出桌面控制条" onClick={showControls}/>}
-  <button type="button" className={`desktop-sync ${controls?'':'is-quiet'}`} onClick={()=>setDrawer('sync')} title={syncText}>{user?<Cloud size={13}/>:<StickyNote size={13}/>}<span>{syncText}</span></button>
+  <button type="button" className={`desktop-sync ${controls?'':'is-quiet'}`} onClick={()=>setDrawer('storage')} title={syncText}><StickyNote size={13}/><span>{syncText}</span></button>
   {entered&&visibleNotes.length===0&&board.ready&&!prefs.hideNotes&&<button type="button" className="empty-desktop" onClick={addNote}><Plus size={22}/><span>贴一张，记下此刻</span></button>}
   <div className="dock-wake-zone" onPointerEnter={showControls} onClick={showControls}/>
   <div className="desktop-dock" ref={dockRef} onPointerEnter={showControls} onFocusCapture={showControls} aria-label="桌面控制条">
@@ -139,7 +160,7 @@ export function Desktop(){
    <button type="button" className="dock-sound-label" onClick={()=>setDrawer('sound')}><span>{playing?'此刻，慢下来':'听一会儿自然'}</span><small>{sounds.filter(s=>prefs.audio.tracks[s.id].enabled).map(s=>s.name).join(' · ')||'选择喜欢的声音'}</small></button>
    <span className="dock-divider"/>
    <DockButton label="调节声音" active={drawer==='sound'} onClick={()=>setDrawer('sound')}><SlidersHorizontal size={18}/></DockButton>
-   <DockButton label="换一张壁纸" onClick={()=>void nextWallpaper()} disabled={photoBusy}>{photoBusy?<LoaderCircle size={18} className="spin"/>:<RefreshCw size={17}/>}</DockButton>
+   <DockButton label="换一张壁纸" onClick={()=>void nextWallpaper()} disabled={!config.wallpaper.enabled}>{photoBusy?<LoaderCircle size={18} className="spin"/>:<RefreshCw size={17}/>}</DockButton>
    <DockButton label="选择壁纸与雨窗" active={drawer==='wallpaper'} onClick={()=>setDrawer('wallpaper')}><Image size={18}/></DockButton>
    <span className="dock-divider"/>
    <DockButton label="新便利贴（N）" onClick={addNote}><Plus size={20}/></DockButton>
@@ -151,7 +172,7 @@ export function Desktop(){
   <div className="desktop-shortcuts" aria-hidden={!controls}>空格 播放 / 暂停 <span>·</span> N 贴一张 <span>·</span> F 全屏 <span>·</span> H 隐藏 / 显示便利贴</div>
   {prefs.wallpaper&&<div className="wallpaper-attribution"><a href={prefs.wallpaper.authorUrl} target="_blank" rel="noopener noreferrer">{prefs.wallpaper.author}</a><span> / </span><a href={prefs.wallpaper.sourceUrl} target="_blank" rel="noopener noreferrer">Unsplash</a></div>}
   <a className="qmuse-credit" href={credit} target="_blank" rel="noopener noreferrer">本应用通过QMuseVibeCoding平台搭建</a>
-  <Dialog.Root open={!!drawer} onOpenChange={open=>{if(!open)setDrawer(null)}}><Dialog.Portal><Dialog.Overlay className="desktop-panel-overlay"/><Dialog.Content className="desktop-panel" aria-describedby="panel-description"><header><div><p className="panel-eyebrow">A LITTLE ROOM FOR YOURSELF</p><Dialog.Title>{drawer?title[drawer]:''}</Dialog.Title></div><Dialog.Close className="panel-close" aria-label="收起面板"><X size={18}/></Dialog.Close></header><Dialog.Description id="panel-description" className="panel-description">{drawer==='sound'?'每一种声音，都可以慢慢调。':drawer==='note'?'Markdown 写下想法，纸张留住温度。':drawer==='wallpaper'?'换一种风景，也换一种心情。':drawer==='account'?'不登录也能使用，登录后可在不同设备同步。':'留住此刻，也给下一次相遇。'}</Dialog.Description>
+  <Dialog.Root open={!!drawer} onOpenChange={open=>{if(!open)setDrawer(null)}}><Dialog.Portal><Dialog.Overlay className="desktop-panel-overlay"/><Dialog.Content className="desktop-panel" aria-describedby="panel-description"><header><div><p className="panel-eyebrow">A LITTLE ROOM FOR YOURSELF</p><Dialog.Title>{drawer?title[drawer]:''}</Dialog.Title></div><Dialog.Close className="panel-close" aria-label="收起面板"><X size={18}/></Dialog.Close></header><Dialog.Description id="panel-description" className="panel-description">{drawer==='sound'?'每一种声音，都可以慢慢调。':drawer==='note'?'Markdown 写下想法，纸张留住温度。':drawer==='wallpaper'?'换一种风景，也换一种心情。':drawer==='account'?'内容仅存当前浏览器，登录只用于壁纸查询额度。':'留住此刻，也给下一次相遇。'}</Dialog.Description>
    <div className="desktop-panel-body">
    {drawer==='sound'&&<>
     <div className="sound-presets">{(['rain','forest','stream','ocean']as const).map(k=><button type="button" key={k} onClick={()=>preset(k)}>{({rain:'雨夜',forest:'林间',stream:'溪谷',ocean:'海边'})[k]}</button>)}</div>
@@ -165,23 +186,25 @@ export function Desktop(){
    {drawer==='wallpaper'&&<>
     <GlassPanel preferences={prefs} onChange={board.updatePreferences}/>
     <h3 className="panel-subheading wallpaper-section-title">窗外的世界</h3>
-    <div className="wallpaper-topics">{config.wallpaper.topics.map(t=><button type="button" className={prefs.topic===t?'active':''} key={t} onClick={()=>void nextWallpaper(t)} disabled={photoBusy}>{topics[t]??t}</button>)}</div>
-    <button type="button" className="panel-primary" onClick={()=>void nextWallpaper()} disabled={photoBusy}>{photoBusy?<LoaderCircle className="spin" size={15}/>:<RefreshCw size={15}/>}换一张风景</button>
+    <div className="wallpaper-topics">{config.wallpaper.topics.map(t=><button type="button" className={prefs.topic===t?'active':''} key={t} onClick={()=>void nextWallpaper(t)} disabled={!config.wallpaper.enabled}>{topics[t]??t}</button>)}</div>
+    <button type="button" className="panel-primary" onClick={()=>void nextWallpaper()} disabled={!config.wallpaper.enabled}>{photoBusy?<LoaderCircle className="spin" size={15}/>:<RefreshCw size={15}/>}换一张风景</button>
+    <p className="panel-footnote">{quota?.limit!=null?`今日查询 ${quota.used} / ${quota.limit} 次；`:'匿名设备每天 10 次，普通账号每天 50 次；'}北京时间次日重置。本机历史与收藏可重复使用，不扣查询次数。连续点击会取消旧请求。</p>
     <button type="button" className="panel-secondary" onClick={favorite} disabled={!prefs.wallpaper}><Heart size={15} fill={prefs.favoritePhotos.some(p=>p.id===prefs.wallpaper?.id)?'currentColor':'none'}/>{prefs.favoritePhotos.some(p=>p.id===prefs.wallpaper?.id)?'已收藏这张壁纸':'收藏这张壁纸'}</button>
     {prefs.wallpaper&&<a className="panel-secondary" href={`${API_BASE}/wallpaper/download/${encodeURIComponent(prefs.wallpaper.id)}`} download target="_blank" rel="noopener noreferrer"><ArrowDownToLine size={15}/>下载高清原图</a>}
     <Range label="让背景暗一点" value={prefs.dim} max={.8} onChange={value=>board.updatePreferences({dim:value})}/>
     {config.wallpaper.allowAuto&&<Toggle label="自动换风景" description={`每 ${config.wallpaper.intervalMinutes} 分钟换一张`} checked={prefs.autoWallpaper} onChange={value=>board.updatePreferences({autoWallpaper:value})}/>}
     <p className="wallpaper-quality">优先 4K 风景 · 下载保留原始尺寸{prefs.wallpaper?.width&&prefs.wallpaper?.height?` · ${prefs.wallpaper.width} × ${prefs.wallpaper.height}`:''}</p>
     {prefs.favoritePhotos.length>0&&<section className="favorite-photos"><h3>喜欢的风景</h3><div>{prefs.favoritePhotos.map(p=><div className="favorite-photo-item" key={p.id}>
-     <button className="favorite-photo-use" type="button" onClick={()=>{board.updatePreferences({wallpaper:highResolutionWallpaper(p)});void api('/wallpaper/use',{method:'POST',body:JSON.stringify({id:p.id})}).catch(()=>{})}} aria-label={`使用 ${p.author} 的壁纸`} aria-pressed={prefs.wallpaper?.id===p.id}><img src={p.thumb} alt={p.description} loading="lazy"/></button>
+     <button className="favorite-photo-use" type="button" onClick={()=>selectLocalWallpaper(p)} aria-label={`使用 ${p.author} 的壁纸`} aria-pressed={prefs.wallpaper?.id===p.id}><img src={p.thumb} alt={p.description} loading="lazy" decoding="async"/></button>
      <button className="favorite-photo-remove" type="button" onClick={()=>removeFavorite(p.id)} aria-label={`从收藏移除 ${p.author} 的壁纸`} title="从收藏移除"><Trash2 size={13}/></button>
     </div>)}</div></section>}
+    {board.board.wallpaperHistory.length>0&&<section className="favorite-photos"><h3>本机换图历史 · 最多 100 张</h3><div>{board.board.wallpaperHistory.map(({photo,topic})=><div className="favorite-photo-item" key={photo.id}><button type="button" className="favorite-photo-use" onClick={()=>selectLocalWallpaper(photo,topic)} aria-label={`再次使用 ${photo.author} 的壁纸`}><img src={photo.thumb} alt={photo.description} loading="lazy" decoding="async"/></button><button className="favorite-photo-remove" type="button" onClick={()=>board.removeHistory(photo.id)} aria-label="删除这条本机历史"><Trash2 size={13}/></button></div>)}</div></section>}
    </>}
    {drawer==='notes'&&<>
     <button type="button" className="panel-primary" onClick={()=>{addNote();setDrawer(null)}}><Plus size={16}/>贴一张新便利贴</button>
     <button type="button" className="panel-secondary" disabled={!visibleNotes.length} onClick={arrangeNotes}><LayoutGrid size={16}/>一键整理便利贴</button>
     <Toggle label="隐藏便利贴" checked={prefs.hideNotes} onChange={value=>board.updatePreferences({hideNotes:value})}/>
-    <div className="note-list">{board.board.notes.filter(n=>!n.deleted).map(n=><div className="note-list-row" key={n.id}><button type="button" onClick={()=>{setSelected(n.id);if(n.archived)board.changeNote(n.id,{archived:false});board.updatePreferences({hideNotes:false});setDrawer('note')}}><span style={{background:n.color}}/><div><strong>{noteTitle(n.markdown)}</strong><small>{n.archived?'已收起':n.dirty?'本机已保留':'已同步'}</small></div></button><button type="button" aria-label={n.archived?'展开便利贴':'收起便利贴'} onClick={()=>board.changeNote(n.id,{archived:!n.archived})}><Archive size={15}/></button><button type="button" aria-label="移除便利贴" onClick={()=>{board.removeNote(n.id);setDeleted(n.id);notify('已移除便利贴，可撤销')}}><Trash2 size={15}/></button></div>)}</div>
+    <div className="note-list">{board.board.notes.map(n=><div className="note-list-row" key={n.id}><button type="button" onClick={()=>{setSelected(n.id);if(n.archived)board.changeNote(n.id,{archived:false});board.updatePreferences({hideNotes:false});setDrawer('note')}}><span style={{background:n.color}}/><div><strong>{noteTitle(n.markdown)}</strong><small>{n.archived?'已收起':'本机保存'}</small></div></button><button type="button" aria-label={n.archived?'展开便利贴':'收起便利贴'} onClick={()=>board.changeNote(n.id,{archived:!n.archived})}><Archive size={15}/></button><button type="button" aria-label="移除便利贴" onClick={()=>{board.removeNote(n.id);setDeleted(n.id);notify('已移除便利贴，可撤销')}}><Trash2 size={15}/></button></div>)}</div>
     <button type="button" className="panel-secondary" onClick={exportNotes}><ArrowDownToLine size={15}/>导出全部便利贴</button>
    </>}
    {drawer==='note'&&selectedNote&&<>
@@ -193,21 +216,20 @@ export function Desktop(){
    </>}
    {drawer==='note'&&!selectedNote&&<p className="panel-footnote">先选中或新增一张便利贴。</p>}
    {drawer==='account'&&<>
-    {user?<div className="account-card"><span className="account-avatar"><UserRound size={24}/></span><strong>{user.displayName??user.email??'我的账号'}</strong><small>{user.email}</small><span className="account-sync-label"><Cloud size={13}/>{syncText}</span><button type="button" className="panel-secondary" onClick={()=>void signOut()}><LogOut size={14}/>退出登录</button></div>:CAN_SYNC?<AccountForm onSuccess={account=>{setUser(account);setDrawer(null);notify('已登录，正在合并并同步本机草稿')}}/>:<div className="account-site-link"><p className="panel-footnote">在这里无需登录，便利贴会保存在当前浏览器。需要登录、注册或跨设备同步时，请打开独立站。两个站点的本机草稿分别保存，可以先导出备份。</p><a className="panel-primary" href={CANONICAL_SITE} target="_blank" rel="noopener noreferrer"><LogIn size={15}/>打开独立站登录 / 注册</a></div>}
-    <button type="button" className="panel-secondary" onClick={()=>setDrawer('sync')}><Cloud size={15}/>查看保存与同步状态<ChevronRight size={14}/></button><button type="button" className="panel-secondary" onClick={exportNotes}><ArrowDownToLine size={15}/>导出本机备份</button>
+    {user?<div className="account-card"><span className="account-avatar"><UserRound size={24}/></span><strong>{user.displayName??user.email??'我的账号'}</strong><small>{user.email}</small><span className="account-sync-label"><StickyNote size={13}/>{syncText}</span><button type="button" className="panel-secondary" onClick={()=>void signOut()}><LogOut size={14}/>退出登录</button></div>:CAN_AUTH?<AccountForm onSuccess={account=>{setUser(account);setDrawer(null);notify('已登录，壁纸查询额度已更新；内容仍只存本机')}}/>:<div className="account-site-link"><p className="panel-footnote">在这里无需登录，便利贴会保存在当前浏览器。登录仅用于增加壁纸查询额度，请打开独立站登录 / 注册。两个站点的本机内容分别保存，不会同步。</p><a className="panel-primary" href={CANONICAL_SITE} target="_blank" rel="noopener noreferrer"><LogIn size={15}/>打开独立站登录 / 注册</a></div>}
+    <button type="button" className="panel-secondary" onClick={()=>setDrawer('storage')}><StickyNote size={15}/>查看本机保存状态<ChevronRight size={14}/></button><button type="button" className="panel-secondary" onClick={exportNotes}><ArrowDownToLine size={15}/>导出本机备份</button>
     {user?.isSuperAdmin&&<a className="panel-secondary" href="https://orbit.mrtreasure.cc/rainy-wallpaper/#/admin" target="_blank" rel="noopener noreferrer"><Settings2 size={15}/>在 Orbit 管理本应用</a>}
     <p className="panel-footnote">按 F 进入全屏；移动鼠标到底部或轻触背景唤出操作。页面使用浏览器支持的原生全屏能力。</p>
    </>}
-   {drawer==='sync'&&<>
-    <div className="sync-card">{board.status==='offline'?<CloudOff size={27}/>:user?<Cloud size={27}/>:<StickyNote size={27}/>}<h3>{syncText}</h3><p>{board.storageError?'本机持久存储暂不可用，请先导出当前内容。':user?'账号内容在本机保留一份，联网后自动同步。':'内容保存在当前浏览器，不需要账号。登录后才会同步到账号。'}</p></div>
+   {drawer==='storage'&&<>
+    <div className="sync-card"><StickyNote size={27}/><h3>{syncText}</h3><p>便利贴、待办、收藏、壁纸历史与声音和雨窗设置仅保存在当前浏览器，登录后也不会上传或跨设备同步。</p><p>清除网站数据、使用无痕窗口或更换浏览器、设备后，内容不会自动恢复。请定期导出本机备份。</p></div>
     {board.error&&<p className="panel-error" role="status">{board.error}</p>}
-    {user&&<button type="button" className="panel-primary" onClick={board.retry}><RefreshCw size={15}/>重新同步</button>}
-    {board.board.notes.filter(n=>n.conflict||n.remoteDeleted).map(n=><div className="conflict-card" key={n.id}><h4>{noteTitle(n.markdown)}</h4><p>{n.remoteDeleted?'其他设备已移除这张便利贴。':'其他设备也修改了这张便利贴。'}</p><div><button type="button" onClick={()=>board.resolveNote(n.id,true)}>保留本机版本</button><button type="button" onClick={()=>board.resolveNote(n.id,false)}>采用远端版本</button></div></div>)}
-    {board.board.preferencesConflict&&<div className="conflict-card"><h4>桌面设置有更新</h4><div><button type="button" onClick={()=>board.resolvePreferences(true)}>保留本机设置</button><button type="button" onClick={()=>board.resolvePreferences(false)}>采用远端设置</button></div></div>}
-    <button type="button" className="panel-secondary" onClick={exportNotes}><ArrowDownToLine size={15}/>先导出一份备份</button>
-    {!user&&<button type="button" className="panel-secondary" onClick={()=>setDrawer('account')}><LogIn size={15}/>登录后同步</button>}
+    {board.storageError&&<button type="button" className="panel-primary" onClick={board.retry}><RefreshCw size={15}/>重试本机保存</button>}
+    <button type="button" className="panel-secondary" onClick={exportNotes}><ArrowDownToLine size={15}/>导出本机备份</button>
+    {user&&<button type="button" className="panel-secondary" onClick={()=>void board.importCachedAccount(user.id).then(count=>notify(`已从当前浏览器的旧账号缓存导入 ${count} 张便利贴`)).catch(()=>notify('旧本机缓存暂时无法读取'))}><Archive size={15}/>导入此账号在本机的旧版草稿</button>}
+    <p className="panel-footnote">服务端仅记录壁纸查询次数，用于额度控制和统计；不会接收便利贴、收藏或桌面设置。</p>
    </>}
-   </div><footer className="desktop-panel-footer"><span className={`status-dot ${connected?'':'offline'}`}/>{user?'账号同步':'本机优先，安心记录'}<span>静间</span></footer>
+   </div><footer className="desktop-panel-footer"><span className={`status-dot ${connected?'':'offline'}`}/>内容仅存本机<span>静间</span></footer>
   </Dialog.Content></Dialog.Portal></Dialog.Root>
   {toast&&<div className="desktop-toast" role="status"><span>{toast}</span>{deleted&&<button type="button" onClick={()=>{board.restoreNote(deleted);setDeleted(null);setToast('已恢复便利贴')}}>撤销</button>}<button type="button" aria-label="关闭提示" onClick={()=>{setToast('');setDeleted(null)}}><X size={13}/></button></div>}
  </main>;
