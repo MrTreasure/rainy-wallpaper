@@ -1,5 +1,5 @@
 import {defaultAudio} from './desktop-types';
-import type {AppConfig,AudioSettings,DesktopPreferences,TrackSettings} from './desktop-types';
+import type {AudioSettings,DesktopPreferences,TrackSettings} from './desktop-types';
 
 type RainPreset={id:string;name:string;description:string;rain:TrackSettings;wind:TrackSettings;thunder:TrackSettings;outdoorRain:number;outdoorWind:number;glassDensity:number;glassSize:number;glassSpeed:number};
 export const RAIN_PRESETS:RainPreset[]=[
@@ -17,6 +17,5 @@ export function rainPresetPreferences(id:string,base:DesktopPreferences):Partial
  const p=RAIN_PRESETS.find(p=>p.id===id)??RAIN_PRESETS[1];
  return {audio:rainPresetAudio(p.id,base.audio),rainGlass:true,glassFalling:true,outdoorRain:p.outdoorRain,outdoorWind:p.outdoorWind,glassDensity:p.glassDensity,glassSize:p.glassSize,glassSpeed:p.glassSpeed};
 }
-export function rainSoundIsPlaying(playing:boolean,audio:AudioSettings,policy:AppConfig['sound']){
- return playing&&policy.enabled&&policy.allowed.includes('rain')&&audio.tracks.rain.enabled&&audio.tracks.rain.volume>0&&Math.min(audio.master,policy.masterLimit)>0;
-}
+/** The rain layer switch controls precipitation; transport and volume affect audio only. */
+export function rainIsEnabled(audio:AudioSettings){return audio.tracks.rain.enabled}

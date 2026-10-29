@@ -17,7 +17,7 @@ import {DEFAULT_CONFIG,defaultAudio,SOUND_KINDS} from '@/services/desktop-types'
 import type {AudioSettings,AppConfig,ConfigRecord,SoundKind,TrackSettings,User,Wallpaper} from '@/services/desktop-types';
 import {highResolutionWallpaper} from '@/services/wallpaper-image';
 import {AmbientEngine} from '@/audio/engine';
-import {RAIN_PRESETS,rainPresetAudio,rainPresetPreferences,rainSoundIsPlaying} from '@/services/rain-presets';
+import {RAIN_PRESETS,rainPresetAudio,rainPresetPreferences,rainIsEnabled} from '@/services/rain-presets';
 
 const sounds:{id:SoundKind;name:string;icon:typeof Wind;a:string;b:string}[]=[{id:'rain',name:'雨声',icon:CloudRain,a:'雨滴密度',b:'雨滴大小'},{id:'wind',name:'风声',icon:Wind,a:'风力',b:'阵风起伏'},{id:'thunder',name:'雷声',icon:Zap,a:'出现频率',b:'远近与回响'},{id:'stream',name:'溪水',icon:Leaf,a:'水流强度',b:'气泡细节'},{id:'ocean',name:'海浪',icon:Waves,a:'浪的大小',b:'涌浪周期'}];
 const topics:Record<string,string>={forest:'森林',ocean:'海边',mountain:'山野',rain:'雨天',city:'城市',flowers:'花草',jiangnan:'江南雨巷',wilderness:'荒野'};
@@ -116,8 +116,8 @@ export function Desktop(){
 
  const title:Record<Exclude<Drawer,null>,string>={sound:'听见此刻',wallpaper:'窗外与雨玻璃',notes:'纸上的小事',note:'这张便利贴',account:user?'我的账号':'登录 / 注册',sync:'本机与云端'};
  const glassActive=entered?prefs.rainGlass:introRain;
- const rainPlaying=rainSoundIsPlaying(playing,prefs.audio,config.sound);
- const outdoorActive=rainPlaying&&(entered?prefs.glassFalling:introRain);
+ const rainEnabled=rainIsEnabled(prefs.audio);
+ const outdoorActive=rainEnabled&&(entered?prefs.glassFalling:introRain);
  const selectedNote=activeNote??visibleNotes[0];
  const syncText=board.storageError?'本机保存失败':{loading:'读取本机',local:'已存本机',saving:'同步中',synced:'已同步',offline:'本机已保留',conflict:'有版本待确认'}[board.status];
  return <main className={`note-app desktop-app ${controls?'controls-visible':''} ${entered?'':'is-entrance'}`} style={{'--wallpaper-dim':prefs.dim,'--glass-blur':`${prefs.glassBlur*14}px`} as CSSProperties}>
@@ -160,7 +160,7 @@ export function Desktop(){
     <Toggle label="自然随机变化" description="在你的设置范围里，缓慢变化强弱与细节" checked={prefs.audio.random&&config.sound.randomEnabled} onChange={value=>changeAudio({random:value})} disabled={!config.sound.randomEnabled}/>
     {prefs.audio.random&&<Range label="变化幅度" value={Math.min(prefs.audio.variation,config.sound.variationMax)} max={config.sound.variationMax} onChange={value=>changeAudio({variation:value})}/>}
     <div className="sound-tracks">{sounds.map(s=>{const track=prefs.audio.tracks[s.id],allowed=config.sound.allowed.includes(s.id)&&config.sound.enabled;return <section className={`sound-track ${track.enabled?'enabled':''}`} key={s.id}><div className="track-heading"><s.icon size={19}/><h3>{s.name}</h3><Toggle label={`开启${s.name}`} compact checked={track.enabled&&allowed} disabled={!allowed} onChange={value=>changeTrack(s.id,{enabled:value})}/></div>{track.enabled&&allowed&&<div className="track-controls"><Range label="音量" value={track.volume} max={s.id==='thunder'?config.sound.thunderLimit:1} onChange={value=>changeTrack(s.id,{volume:value})}/><Range label={s.a} value={track.intensity} onChange={value=>changeTrack(s.id,{intensity:value})}/><Range label={s.b} value={track.detail} onChange={value=>changeTrack(s.id,{detail:value})}/><Range label="音色明亮度" value={track.brightness} onChange={value=>changeTrack(s.id,{brightness:value})}/>{s.id==='thunder'&&<button type="button" className="panel-secondary" onClick={()=>void previewThunder()} disabled={audioBusy||track.volume<=0||prefs.audio.master<=0||config.sound.thunderLimit<=0||config.sound.masterLimit<=0}><Zap size={14}/>试听雷声</button>}</div>}</section>})}</div>
-    <p className="panel-footnote">雨声播放时才会下雨；暂停或关闭雨声后停雨。开启雷声后约 1–3 秒出现首声，之后按频率自然间隔，也可点击试听。</p>
+    <p className="panel-footnote">总暂停和音量只影响声音；单独关闭“雨声”开关才停止降雨。开启雷声后约 1–3 秒出现首声，之后按频率自然间隔，也可点击试听。</p>
    </>}
    {drawer==='wallpaper'&&<>
     <GlassPanel preferences={prefs} onChange={board.updatePreferences}/>
