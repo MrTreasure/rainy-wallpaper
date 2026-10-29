@@ -7,7 +7,7 @@
 ## 在线体验
 
 - **独立站：** [rain.mrtreasure.cc](https://rain.mrtreasure.cc/)
-- **QMuse：** [在 QMuse 打开静间](https://qmuse.cn/app/2988474587756506)
+- **QMuse：** [在 QMuse 打开静间](https://render.qmuse.pub/p/muse/2988474587756506/)
 
 独立站支持登录、注册与远端同步。QMuse 版支持本地便利贴、壁纸和声音；需要账号同步时，从账号面板打开独立站。两个域名的浏览器本地存储互相独立，不会自动合并。
 
